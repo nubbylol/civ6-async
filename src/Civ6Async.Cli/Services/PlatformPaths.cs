@@ -57,4 +57,44 @@ internal static class PlatformPaths
         }
         return null;
     }
+
+    /// <summary>
+    /// Hotseat saves live alongside the Mods directory under the Civ user
+    /// folder. Same per-OS heuristics, just one folder over.
+    /// </summary>
+    public static IEnumerable<string> CandidateHotseatSavesDirs() =>
+        CandidateModsDirs().Select(modsDir =>
+            Path.Combine(Path.GetDirectoryName(modsDir)!, "Saves", "Hotseat"));
+
+    public static string? AutoDetectHotseatSavesDir()
+    {
+        foreach (var dir in CandidateHotseatSavesDirs())
+        {
+            var civUserDir = Path.GetDirectoryName(Path.GetDirectoryName(dir));
+            if (civUserDir is not null && Directory.Exists(civUserDir))
+                return dir;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Per-user app data root for civ6-async itself (not Civ). Used for the
+    /// helper's own config.json (player identity, active game pointer).
+    /// </summary>
+    public static string AppDataDir()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "civ6-async");
+        }
+        // XDG-compliant on Linux/macOS.
+        var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+        if (string.IsNullOrEmpty(xdgConfig))
+            xdgConfig = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".config");
+        return Path.Combine(xdgConfig, "civ6-async");
+    }
 }
