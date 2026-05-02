@@ -11,15 +11,50 @@ Civilization VI hotseat without the friction. Skips the click-to-begin-turn scre
 
 ## Install
 
-**Installer**: run `dist\civ6-async-Setup-1.0.0.exe`. Per-user, no admin needed. Run the same `.exe` again to uninstall.
+The mod ships as a small command-line tool that installs the mod files into Civilization VI's Mods folder for you. The tool is a single self-contained binary, no .NET runtime needed.
 
-**Manual**: copy this folder into
+### Windows
+
+Download `civ6-async.exe`, then in any terminal:
 
 ```
-Documents\My Games\Sid Meier's Civilization VI\Mods\
+civ6-async.exe install
 ```
 
-Then enable **civ6-async** in **Additional Content → Mods**.
+### Linux
+
+Download the `civ6-async` binary, make it executable, then:
+
+```
+chmod +x civ6-async
+./civ6-async install
+```
+
+Works against the native Aspyr Linux build of Civ 6, the Windows build via Steam Proton, and the Steam Flatpak. The tool auto-detects which install you have.
+
+### Then enable the mod in-game
+
+Launch Civilization VI → **Additional Content → Mods** → tick **civ6-async** → confirm.
+
+### Other commands
+
+| Command | What it does |
+|---|---|
+| `civ6-async install`   | Copy the mod files into Civ's Mods folder. Run again to update. |
+| `civ6-async uninstall` | Remove them. |
+| `civ6-async status`    | One-line summary of whether the mod is installed. |
+| `civ6-async health`    | Detailed report: paths detected, file integrity, write permissions. |
+
+Add `--mods-dir <path>` to override auto-detection. Add `-y` to skip confirmation prompts.
+
+## Building from source
+
+Requires .NET 8 SDK.
+
+```
+cd src
+./build.ps1            # produces dist/cli/{win-x64,linux-x64}/civ6-async[.exe]
+```
 
 ## Notes
 

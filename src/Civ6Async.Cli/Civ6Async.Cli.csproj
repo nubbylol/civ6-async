@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Civ6Async.Cli</RootNamespace>
+    <AssemblyName>civ6-async</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
+  </ItemGroup>
+
+  <!--
+    Embed the mod files (located at the repo root) directly into the binary.
+    Renaming the LogicalName lets us look them up at runtime by a stable key
+    regardless of where the source file lives on disk.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\civ6-async.modinfo">
+      <LogicalName>ModAssets/civ6-async.modinfo</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\UI\PlayerChange.lua">
+      <LogicalName>ModAssets/UI/PlayerChange.lua</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\UI\ActionPanel.lua">
+      <LogicalName>ModAssets/UI/ActionPanel.lua</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\UI\ForceAutoEndTurn.lua">
+      <LogicalName>ModAssets/UI/ForceAutoEndTurn.lua</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\UI\ForceAutoEndTurn.xml">
+      <LogicalName>ModAssets/UI/ForceAutoEndTurn.xml</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>
