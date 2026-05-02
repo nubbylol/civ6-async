@@ -24,6 +24,10 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
         [CommandOption("--me <NAME>")]
         [Description("Which player you are. Must be one of --players. Saved locally.")]
         public required string Me { get; init; }
+
+        [CommandOption("--webhook <URL>")]
+        [Description("Optional Discord webhook URL — submits will post to this channel.")]
+        public string? Webhook { get; init; }
     }
 
     protected override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
@@ -55,13 +59,22 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
 
         Directory.CreateDirectory(sharedFolder);
 
+        if (settings.Webhook is not null && !DiscordWebhook.LooksValid(settings.Webhook))
+        {
+            AnsiConsole.MarkupLine(
+                "[red]--webhook doesn't look like a Discord webhook URL.[/] " +
+                "Expected: https://discord.com/api/webhooks/...");
+            return 1;
+        }
+
         var manifest = new GameManifest
         {
-            GameName      = settings.Name,
-            CreatedAt     = DateTime.UtcNow,
-            Players       = players,
-            CurrentPlayer = players[0],
-            CurrentTurn   = 1,
+            GameName          = settings.Name,
+            CreatedAt         = DateTime.UtcNow,
+            Players           = players,
+            CurrentPlayer     = players[0],
+            CurrentTurn       = 1,
+            DiscordWebhookUrl = settings.Webhook,
         };
         manifest.Save(sharedFolder);
 

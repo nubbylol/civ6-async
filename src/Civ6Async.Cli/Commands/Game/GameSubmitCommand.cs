@@ -44,23 +44,57 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
             AnsiConsole.MarkupLine("\n[yellow]--force given; submitting anyway.[/]");
         }
 
-        // Name the file in the shared folder so a glance at the folder shows
-        // who submitted what. Original local name is preserved on the player's
-        // own machine.
-        var dstName = $"{manifest!.GameName}_T{manifest.CurrentTurn:D3}_{config!.PlayerName}.Civ6Save";
-        var dst     = Path.Combine(config.ActiveGame!.SharedFolderPath, dstName);
-        File.Copy(savePath, dst, overwrite: true);
+        // Acquire the cooperative lock so a concurrent submit from another
+        // helper instance can't race our manifest write.
+        if (!SubmitLock.TryAcquire(config!.ActiveGame!.SharedFolderPath, config.PlayerName!, out var blocking))
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]Another submit is already in progress.[/] " +
+                $"Held by [yellow]{blocking!.Player}[/] on " +
+                $"[yellow]{blocking.Hostname}[/] since " +
+                $"[grey]{blocking.AcquiredAt:yyyy-MM-dd HH:mm:ss}[/] UTC.");
+            AnsiConsole.MarkupLine(
+                $"   Either wait for it to finish, or — if it looks dead (older than " +
+                $"{SubmitLock.StaleAfter.TotalMinutes:F0} minutes) — rerun with [bold]--force[/].");
+            return 1;
+        }
 
-        var hash = GameManifest.HashFile(dst);
-        var fromTurn   = manifest.CurrentTurn;
-        var fromPlayer = config.PlayerName!;
-        manifest.AdvanceTurn(fromPlayer, fromTurn, dstName, hash);
-        manifest.Save(config.ActiveGame.SharedFolderPath);
+        try
+        {
+            // Name the file in the shared folder so a glance at the folder shows
+            // who submitted what. Original local name is preserved on the player's
+            // own machine.
+            var dstName = $"{manifest!.GameName}_T{manifest.CurrentTurn:D3}_{config.PlayerName}.Civ6Save";
+            var dst     = Path.Combine(config.ActiveGame.SharedFolderPath, dstName);
+            File.Copy(savePath, dst, overwrite: true);
 
-        AnsiConsole.MarkupLine(
-            $"[green]Submitted turn {fromTurn} as[/] [grey]{dstName.EscapeMarkup()}[/]");
-        AnsiConsole.MarkupLine($"Next up: [yellow]{manifest.CurrentPlayer}[/] (turn {manifest.CurrentTurn}).");
-        return 0;
+            var hash = GameManifest.HashFile(dst);
+            var fromTurn   = manifest.CurrentTurn;
+            var fromPlayer = config.PlayerName!;
+            manifest.AdvanceTurn(fromPlayer, fromTurn, dstName, hash);
+            manifest.Save(config.ActiveGame.SharedFolderPath);
+
+            AnsiConsole.MarkupLine(
+                $"[green]Submitted turn {fromTurn} as[/] [grey]{dstName.EscapeMarkup()}[/]");
+            AnsiConsole.MarkupLine($"Next up: [yellow]{manifest.CurrentPlayer}[/] (turn {manifest.CurrentTurn}).");
+
+            if (!string.IsNullOrEmpty(manifest.DiscordWebhookUrl))
+            {
+                var msg =
+                    $"**{manifest.GameName}** — turn {fromTurn} submitted by {fromPlayer}. " +
+                    $"It's now **{manifest.CurrentPlayer}**'s turn (T{manifest.CurrentTurn}).";
+                var ok = DiscordWebhook.PostAsync(manifest.DiscordWebhookUrl, msg)
+                    .GetAwaiter().GetResult();
+                if (!ok)
+                    AnsiConsole.MarkupLine("[grey]   (Discord webhook post failed; continuing.)[/]");
+            }
+
+            return 0;
+        }
+        finally
+        {
+            SubmitLock.Release(config.ActiveGame.SharedFolderPath);
+        }
     }
 
     private static void PrintConflict(SubmitConflict c)

@@ -33,6 +33,10 @@ app.Configure(config =>
             .WithDescription("If it's your turn, download the latest save into your Civ saves folder.");
         branch.AddCommand<GameSubmitCommand>("submit")
             .WithDescription("Upload the save you just played, advancing the turn.");
+        branch.AddCommand<GameWatchCommand>("watch")
+            .WithDescription("Run in the background, notifying you when it's your turn or you've saved.");
+        branch.AddCommand<GameWebhookCommand>("webhook")
+            .WithDescription("Set / clear / show the Discord webhook URL for this game's submit pings.");
     });
 });
 
@@ -58,6 +62,7 @@ static async Task<int> RunInteractiveAsync(CommandApp app)
                     new MenuChoice("Game: check whose turn",     new[] { "game", "status" }),
                     new MenuChoice("Game: download latest save", new[] { "game", "check" }),
                     new MenuChoice("Game: submit my turn",       new[] { "game", "submit" }),
+                    new MenuChoice("Game: watch (background)",   new[] { "game", "watch" }),
                     new MenuChoice("Mod: install / update",      new[] { "install" }),
                     new MenuChoice("Mod: uninstall",             new[] { "uninstall" }),
                     new MenuChoice("Mod: status",                new[] { "status" }),

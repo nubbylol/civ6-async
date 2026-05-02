@@ -50,6 +50,6 @@ internal sealed class LocalConfig
     {
         var path = ConfigPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(this, JsonOptions));
+        AtomicJsonWriter.Write(path, this, JsonOptions);
     }
 }

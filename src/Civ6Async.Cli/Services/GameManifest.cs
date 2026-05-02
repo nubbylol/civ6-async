@@ -22,6 +22,8 @@ internal sealed class GameManifest
     public string?      LatestSaveFile         { get; set; }
     public string?      LatestSaveHash         { get; set; }
     public DateTime?    LatestSaveSubmittedAt  { get; set; }
+    /// <summary>Optional Discord webhook URL for "your turn" pings on submit.</summary>
+    public string?      DiscordWebhookUrl      { get; set; }
     public List<HistoryEntry> History          { get; set; } = new();
 
     public sealed class HistoryEntry
@@ -52,7 +54,7 @@ internal sealed class GameManifest
     public void Save(string sharedFolder)
     {
         Directory.CreateDirectory(sharedFolder);
-        File.WriteAllText(ManifestPathIn(sharedFolder), JsonSerializer.Serialize(this, JsonOptions));
+        AtomicJsonWriter.Write(ManifestPathIn(sharedFolder), this, JsonOptions);
     }
 
     /// <summary>Compute SHA-256 of a file, formatted as "sha256:<hex>".</summary>
