@@ -35,38 +35,85 @@ internal static class ModInstaller
     }
 
     /// <summary>
-    /// Robust recursive delete. Clears the ReadOnly attribute on every file
-    /// and directory before deleting, which is necessary for paths inside a
-    /// OneDrive-synced Documents folder where OneDrive sets ReadOnly on
-    /// "Files On-Demand" entries.
+    /// Robust recursive delete. OneDrive-redirected Documents paths break
+    /// naive Directory.Delete in two ways: synced files get a ReadOnly
+    /// attribute (which Delete refuses), and Files-On-Demand entries can
+    /// hold transient locks during sync. We:
+    ///   1. Clear ReadOnly on the root, every subdirectory, every file.
+    ///   2. Try Directory.Delete with a short retry/backoff.
+    ///   3. Fall back to a manual depth-first per-file delete.
     /// </summary>
     private static void ForceDeleteDirectory(string path)
     {
-        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        ClearReadOnlyRecursive(path);
+
+        Exception? lastEx = null;
+        for (var attempt = 0; attempt < 3; attempt++)
         {
             try
             {
-                var attrs = File.GetAttributes(file);
-                if ((attrs & FileAttributes.ReadOnly) != 0)
-                    File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+                Directory.Delete(path, recursive: true);
+                return;
             }
-            catch
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                // Best-effort; the actual delete will surface a real error if
-                // we can't get past it.
+                lastEx = ex;
+                Thread.Sleep(150 * (attempt + 1));
+                ClearReadOnlyRecursive(path);
             }
         }
-        foreach (var dir in Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories))
+
+        // Manual fallback: walk depth-first, deleting per-file.
+        try
         {
-            try
-            {
-                var attrs = File.GetAttributes(dir);
-                if ((attrs & FileAttributes.ReadOnly) != 0)
-                    File.SetAttributes(dir, attrs & ~FileAttributes.ReadOnly);
-            }
-            catch { }
+            DeleteRecursiveManual(new DirectoryInfo(path));
+            return;
         }
-        Directory.Delete(path, recursive: true);
+        catch (Exception ex)
+        {
+            lastEx = ex;
+        }
+
+        if (lastEx is not null) throw lastEx;
+    }
+
+    private static void ClearReadOnlyRecursive(string path)
+    {
+        if (!Directory.Exists(path)) return;
+
+        TryClearReadOnly(path);
+
+        foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+            TryClearReadOnly(entry);
+    }
+
+    private static void TryClearReadOnly(string path)
+    {
+        try
+        {
+            var attrs = File.GetAttributes(path);
+            if ((attrs & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(path, attrs & ~FileAttributes.ReadOnly);
+        }
+        catch
+        {
+            // Best-effort; the delete will surface a real error if we can't
+            // get past whatever's blocking us.
+        }
+    }
+
+    private static void DeleteRecursiveManual(DirectoryInfo dir)
+    {
+        foreach (var file in dir.GetFiles())
+        {
+            file.Attributes = FileAttributes.Normal;
+            file.Delete();
+        }
+        foreach (var sub in dir.GetDirectories())
+            DeleteRecursiveManual(sub);
+
+        dir.Attributes = FileAttributes.Normal;
+        dir.Delete(recursive: false);
     }
 
     /// <summary>
