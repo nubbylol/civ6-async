@@ -94,9 +94,6 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
             AnsiConsole.MarkupLine(
                 $"[green]►[/] Civ saved [grey]{name.EscapeMarkup()}[/] — " +
                 "ready to submit. Run [bold]civ6-async game submit[/].");
-            DesktopNotifications.Show(
-                "civ6-async — submit ready",
-                $"Civ saved {name}. Run 'civ6-async game submit' when you're done.");
             Beep();
         }
 
@@ -120,9 +117,6 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
                 AnsiConsole.MarkupLine(
                     $"[green]►[/] [bold]Your turn[/] — turn {current.CurrentTurn}. " +
                     "Run [bold]civ6-async game check[/].");
-                DesktopNotifications.Show(
-                    "civ6-async — your turn",
-                    $"Turn {current.CurrentTurn}. Run 'civ6-async game check' to download.");
                 Beep();
             }
             else
