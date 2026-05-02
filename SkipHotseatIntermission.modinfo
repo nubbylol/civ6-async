@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Mod id="8758909f-2bc5-4633-9e67-6d7361007c07" version="1">
+  <Properties>
+    <Name>Skip Hotseat Intermission</Name>
+    <Teaser>Auto-dismisses the "Click to begin your turn" screen in hotseat games.</Teaser>
+    <Description>Replaces the base PlayerChange.lua so that whenever an incoming hotseat player has no password set, the intermission popup is skipped and play resumes immediately. Password-protected players still see the prompt.</Description>
+    <Authors>arinrazi</Authors>
+    <AffectsSavedGames>0</AffectsSavedGames>
+    <CompatibleVersions>2.0,2.1,2.2</CompatibleVersions>
+  </Properties>
+  <Files>
+    <File>UI/PlayerChange.lua</File>
+  </Files>
+  <InGameActions>
+    <ReplaceUIScript id="SKIP_HOTSEAT_REPLACE_PLAYERCHANGE">
+      <Properties>
+        <LuaContext>PlayerChange</LuaContext>
+        <LuaReplace>UI/PlayerChange.lua</LuaReplace>
+      </Properties>
+    </ReplaceUIScript>
+  </InGameActions>
+</Mod>
