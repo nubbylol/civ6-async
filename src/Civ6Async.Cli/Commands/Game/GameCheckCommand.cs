@@ -38,7 +38,7 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
         }
         Directory.CreateDirectory(savesDir);
 
-        var src = Path.Combine(config.ActiveGame!.SharedFolderPath, manifest.LatestSaveFile);
+        var src = Path.Combine(config.ActiveGameEntry!.SharedFolderPath, manifest.LatestSaveFile);
         if (!File.Exists(src))
         {
             AnsiConsole.MarkupLine(
@@ -48,7 +48,8 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
             return 1;
         }
 
-        var dest = Path.Combine(savesDir, SavePicker.DownloadedSaveName);
+        var destName = SavePicker.DownloadedSaveName(manifest.GameName, manifest.CurrentTurn);
+        var dest     = Path.Combine(savesDir, destName);
         File.Copy(src, dest, overwrite: true);
 
         AnsiConsole.MarkupLine($"[green]Your turn[/] (turn {manifest.CurrentTurn}).");
@@ -57,7 +58,7 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
             $"→ [grey]{dest.EscapeMarkup()}[/]");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine(
-            $"Open [bold]{SavePicker.DownloadedSaveName}[/] in Civilization VI, play your turn, save the " +
+            $"Open [bold]{destName.EscapeMarkup()}[/] in Civilization VI, play your turn, save the " +
             "game, then run [bold]civ6-async game submit[/].");
         return 0;
     }

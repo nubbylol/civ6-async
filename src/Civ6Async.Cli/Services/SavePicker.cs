@@ -8,7 +8,12 @@ namespace Civ6Async.Cli.Services;
 /// </summary>
 internal static class SavePicker
 {
-    public const string DownloadedSaveName = "civ6-async-current.Civ6Save";
+    /// <summary>Filename prefix for saves the helper drops into the Civ saves folder via 'check'.</summary>
+    public const string DownloadedSavePrefix = "civ6-async-";
+
+    /// <summary>Builds a per-game-per-turn name, e.g. "civ6-async-MyGame-T42.Civ6Save".</summary>
+    public static string DownloadedSaveName(string gameName, int turn) =>
+        $"{DownloadedSavePrefix}{gameName}-T{turn:D3}.Civ6Save";
 
     public static string? Pick(string? savesDir)
     {

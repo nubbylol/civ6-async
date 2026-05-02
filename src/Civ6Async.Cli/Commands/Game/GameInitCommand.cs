@@ -80,11 +80,7 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
 
         var config = LocalConfig.Load();
         config.PlayerName = settings.Me;
-        config.ActiveGame = new LocalConfig.ActiveGameInfo
-        {
-            SharedFolderPath = sharedFolder,
-            GameName         = settings.Name,
-        };
+        config.RegisterAndActivate(settings.Name, sharedFolder);
         config.Save();
 
         AnsiConsole.MarkupLine($"[green]Created game[/] [bold]{settings.Name}[/]");

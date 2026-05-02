@@ -46,7 +46,7 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
 
         // Acquire the cooperative lock so a concurrent submit from another
         // helper instance can't race our manifest write.
-        if (!SubmitLock.TryAcquire(config!.ActiveGame!.SharedFolderPath, config.PlayerName!, out var blocking))
+        if (!SubmitLock.TryAcquire(config!.ActiveGameEntry!.SharedFolderPath, config.PlayerName!, out var blocking))
         {
             AnsiConsole.MarkupLine(
                 $"[red]Another submit is already in progress.[/] " +
@@ -65,18 +65,24 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
             // who submitted what. Original local name is preserved on the player's
             // own machine.
             var dstName = $"{manifest!.GameName}_T{manifest.CurrentTurn:D3}_{config.PlayerName}.Civ6Save";
-            var dst     = Path.Combine(config.ActiveGame.SharedFolderPath, dstName);
+            var dst     = Path.Combine(config.ActiveGameEntry!.SharedFolderPath, dstName);
             File.Copy(savePath, dst, overwrite: true);
 
             var hash = GameManifest.HashFile(dst);
             var fromTurn   = manifest.CurrentTurn;
             var fromPlayer = config.PlayerName!;
             manifest.AdvanceTurn(fromPlayer, fromTurn, dstName, hash);
-            manifest.Save(config.ActiveGame.SharedFolderPath);
+            manifest.Save(config.ActiveGameEntry!.SharedFolderPath);
 
             AnsiConsole.MarkupLine(
                 $"[green]Submitted turn {fromTurn} as[/] [grey]{dstName.EscapeMarkup()}[/]");
             AnsiConsole.MarkupLine($"Next up: [yellow]{manifest.CurrentPlayer}[/] (turn {manifest.CurrentTurn}).");
+
+            // Backup retention: trim old per-turn .Civ6Save files in the
+            // shared folder, keeping the N most recent. Keeps the folder
+            // tidy on long campaigns; leaves room for rollback if a recent
+            // submit was bad.
+            TrimOldSaves(config.ActiveGameEntry!.SharedFolderPath, manifest, keepLast: 5);
 
             if (!string.IsNullOrEmpty(manifest.DiscordWebhookUrl))
             {
@@ -93,7 +99,7 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
         }
         finally
         {
-            SubmitLock.Release(config.ActiveGame.SharedFolderPath);
+            SubmitLock.Release(config.ActiveGameEntry!.SharedFolderPath);
         }
     }
 
@@ -103,5 +109,31 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
         AnsiConsole.MarkupLine($"[yellow]⚠  {c.Title}[/]");
         AnsiConsole.MarkupLine($"   {c.Detail}");
         AnsiConsole.MarkupLine($"   [bold]How to fix:[/] {c.Remediation}");
+    }
+
+    private static void TrimOldSaves(string sharedFolder, GameManifest manifest, int keepLast)
+    {
+        try
+        {
+            // Identify files referenced by the manifest's history (we never
+            // delete those — leave the rolling-history reference window intact).
+            var referenced = manifest.History
+                .Reverse<GameManifest.HistoryEntry>()
+                .Take(keepLast)
+                .Select(h => h.SavedAs)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (manifest.LatestSaveFile is not null)
+                referenced.Add(manifest.LatestSaveFile);
+
+            var dir = new DirectoryInfo(sharedFolder);
+            foreach (var file in dir.EnumerateFiles($"{manifest.GameName}_T*.Civ6Save"))
+            {
+                if (!referenced.Contains(file.Name))
+                {
+                    try { file.Delete(); } catch { /* best-effort */ }
+                }
+            }
+        }
+        catch { }
     }
 }

@@ -16,14 +16,14 @@ internal sealed class GameStatusCommand : Command<EmptySettings>
 
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("Game",        $"[bold]{manifest.GameName.EscapeMarkup()}[/]");
-        grid.AddRow("Shared",      $"[grey]{config.ActiveGame!.SharedFolderPath.EscapeMarkup()}[/]");
+        grid.AddRow("Shared",      $"[grey]{config.ActiveGameEntry!.SharedFolderPath.EscapeMarkup()}[/]");
         grid.AddRow("Turn",        manifest.CurrentTurn.ToString());
         grid.AddRow("Whose turn",  iAmUp
             ? $"[green]{manifest.CurrentPlayer}[/] (you)"
             : $"[yellow]{manifest.CurrentPlayer}[/]");
         grid.AddRow("Players",     string.Join(" → ", manifest.Players));
         if (manifest.LatestSaveSubmittedAt is not null)
-            grid.AddRow("Last submit", $"[grey]{manifest.LatestSaveSubmittedAt.Value:yyyy-MM-dd HH:mm} UTC[/]");
+            grid.AddRow("Last submit", $"[grey]{manifest.LatestSaveSubmittedAt.Value:yyyy-MM-dd HH:mm} UTC ({FormatRelative(manifest.LatestSaveSubmittedAt.Value)})[/]");
 
         AnsiConsole.Write(grid);
         AnsiConsole.WriteLine();
@@ -31,6 +31,15 @@ internal sealed class GameStatusCommand : Command<EmptySettings>
             ? "It's [green]your turn[/]. Run [bold]civ6-async game check[/] to download the latest save."
             : $"Waiting on [yellow]{manifest.CurrentPlayer}[/].");
         return 0;
+    }
+
+    private static string FormatRelative(DateTime utc)
+    {
+        var delta = DateTime.UtcNow - utc;
+        if (delta.TotalSeconds < 60) return "just now";
+        if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m ago";
+        if (delta.TotalHours   < 24) return $"{(int)delta.TotalHours}h ago";
+        return $"{(int)delta.TotalDays}d ago";
     }
 }
 

@@ -36,7 +36,7 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
         if (settings.Url.Equals("clear", StringComparison.OrdinalIgnoreCase))
         {
             manifest!.DiscordWebhookUrl = null;
-            manifest.Save(config!.ActiveGame!.SharedFolderPath);
+            manifest.Save(config!.ActiveGameEntry!.SharedFolderPath);
             AnsiConsole.MarkupLine("[green]Webhook cleared.[/]");
             return 0;
         }
@@ -50,7 +50,7 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
         }
 
         manifest!.DiscordWebhookUrl = settings.Url;
-        manifest.Save(config!.ActiveGame!.SharedFolderPath);
+        manifest.Save(config!.ActiveGameEntry!.SharedFolderPath);
 
         // Smoke-test it so the host knows it works before relying on it.
         var ok = DiscordWebhook.PostAsync(

@@ -44,11 +44,7 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
 
         var config = LocalConfig.Load();
         config.PlayerName = me;
-        config.ActiveGame = new LocalConfig.ActiveGameInfo
-        {
-            SharedFolderPath = settings.SharedFolder,
-            GameName         = manifest.GameName,
-        };
+        config.RegisterAndActivate(manifest.GameName, settings.SharedFolder);
         config.Save();
 
         AnsiConsole.MarkupLine($"[green]Joined[/] [bold]{manifest.GameName}[/] as [bold]{me}[/].");

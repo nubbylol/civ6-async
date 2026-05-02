@@ -28,7 +28,7 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         }
         Directory.CreateDirectory(savesDir);
 
-        var sharedDir = config!.ActiveGame!.SharedFolderPath;
+        var sharedDir = config!.ActiveGameEntry!.SharedFolderPath;
         var me        = config.PlayerName!;
 
         AnsiConsole.MarkupLine($"[green]Watching[/] [bold]{manifest!.GameName}[/] as [bold]{me}[/].");
@@ -86,8 +86,8 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
             if (current is null) return;
             if (!string.Equals(current.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase)) return;
 
-            // Skip the sentinel we wrote during 'check'.
-            if (Path.GetFileName(path).Equals(SavePicker.DownloadedSaveName, StringComparison.OrdinalIgnoreCase))
+            // Skip the files we wrote during 'check' (any name beginning with our prefix).
+            if (Path.GetFileName(path).StartsWith(SavePicker.DownloadedSavePrefix, StringComparison.OrdinalIgnoreCase))
                 return;
 
             var name = Path.GetFileName(path);
