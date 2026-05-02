@@ -30,8 +30,43 @@ internal static class ModInstaller
     public static void Uninstall(string modsDir)
     {
         var installDir = GetInstallDir(modsDir);
-        if (Directory.Exists(installDir))
-            Directory.Delete(installDir, recursive: true);
+        if (!Directory.Exists(installDir)) return;
+        ForceDeleteDirectory(installDir);
+    }
+
+    /// <summary>
+    /// Robust recursive delete. Clears the ReadOnly attribute on every file
+    /// and directory before deleting, which is necessary for paths inside a
+    /// OneDrive-synced Documents folder where OneDrive sets ReadOnly on
+    /// "Files On-Demand" entries.
+    /// </summary>
+    private static void ForceDeleteDirectory(string path)
+    {
+        foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var attrs = File.GetAttributes(file);
+                if ((attrs & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
+            }
+            catch
+            {
+                // Best-effort; the actual delete will surface a real error if
+                // we can't get past it.
+            }
+        }
+        foreach (var dir in Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories))
+        {
+            try
+            {
+                var attrs = File.GetAttributes(dir);
+                if ((attrs & FileAttributes.ReadOnly) != 0)
+                    File.SetAttributes(dir, attrs & ~FileAttributes.ReadOnly);
+            }
+            catch { }
+        }
+        Directory.Delete(path, recursive: true);
     }
 
     /// <summary>
