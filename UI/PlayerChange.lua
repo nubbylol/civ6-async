@@ -1,11 +1,12 @@
 ----------------------------------------------------------------
--- PlayerChange (modded: skip hotseat intermission)
+-- PlayerChange (modded by civ6-async)
 --
--- Replacement for Base/Assets/UI/Popups/PlayerChange.lua.
--- Identical to the base file except that OnLocalPlayerTurnBegin
--- bypasses the "Click to begin your turn" popup whenever the
--- incoming local player has no hotseat password set, by directly
--- invoking the same path the OK button would.
+-- Replacement for Base/Assets/UI/Popups/PlayerChange.lua. Two changes:
+--   1. OnLocalPlayerTurnBegin: when the incoming hotseat player has no
+--      password, skip the "Click to begin your turn" popup by invoking
+--      the same close path the OK button would.
+--   2. OnLocalPlayerTurnEnd: suppress the "Please Wait" popup queue in
+--      hotseat. Engine state flags are still set; only the UI is gone.
 ----------------------------------------------------------------
 include("PopupPriorityLoader_", true);
 
@@ -90,6 +91,10 @@ function OnLocalPlayerTurnEnd()
 		bPlayerChanging = true;
 		if(GameConfiguration.IsHotseat()) then
 			SetPause(false);
+			-- civ6-async: skip the "Please Wait" popup in hotseat so FireTuner
+			-- stays connected through the player handoff. State flags above
+			-- are still set; only the UI queue is suppressed.
+			return;
 		end
 		UIManager:QueuePopup( ContextPtr, PopupPriority.PlayerChange);
 	end
@@ -284,7 +289,7 @@ function Initialize()
 	Controls.PasswordEntry:RegisterStringChangedCallback(OnPasswordEntryStringChanged);
 	Controls.PasswordEntry:RegisterCommitCallback(OnPasswordEntryCommit);
 
-	print("SkipHotseatIntermission: PlayerChange.lua replacement loaded");
+	print("civ6-async: PlayerChange.lua replacement loaded");
 end
 
 if GameConfiguration.IsHotseat() then

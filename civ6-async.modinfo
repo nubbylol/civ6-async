@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Mod id="8758909f-2bc5-4633-9e67-6d7361007c07" version="1">
+  <Properties>
+    <Name>civ6-async</Name>
+    <Teaser>Hotseat-as-async: skip the click-to-begin popup and auto-end turns that need no decision.</Teaser>
+    <Description>Hotseat without the friction. Skips the click-to-begin-turn screens between players and auto-ends turns when no human decision is required. Stops the moment something needs you (units to move, choices to make, notifications to acknowledge).</Description>
+    <Authors>arinrazi</Authors>
+    <AffectsSavedGames>0</AffectsSavedGames>
+    <CompatibleVersions>2.0,2.1,2.2</CompatibleVersions>
+  </Properties>
+  <Files>
+    <File>UI/PlayerChange.lua</File>
+    <File>UI/ActionPanel.lua</File>
+    <File>UI/ForceAutoEndTurn.lua</File>
+    <File>UI/ForceAutoEndTurn.xml</File>
+  </Files>
+  <InGameActions>
+    <!--
+      ImportFiles puts each .lua into the mod's content path so the game's
+      file resolver picks our copies before the base-game ones. PlayerChange
+      override skips the hotseat intermission popups; ActionPanel override
+      patches CheckAutoEndTurn and adds a deferred end-turn driver.
+    -->
+    <ImportFiles id="CIV6_ASYNC_OVERRIDE_PLAYERCHANGE">
+      <File>UI/PlayerChange.lua</File>
+    </ImportFiles>
+    <ImportFiles id="CIV6_ASYNC_OVERRIDE_ACTIONPANEL">
+      <File>UI/ActionPanel.lua</File>
+    </ImportFiles>
+    <AddUserInterfaces id="CIV6_ASYNC_FORCE_AUTOENDTURN">
+      <Properties>
+        <Context>InGame</Context>
+      </Properties>
+      <File>UI/ForceAutoEndTurn.xml</File>
+    </AddUserInterfaces>
+  </InGameActions>
+</Mod>
