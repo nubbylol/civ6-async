@@ -1,51 +1,56 @@
 # civ6-async
 
-Civilization VI hotseat without the friction. Skips the click-to-begin-turn screens between players and auto-ends every turn the moment no decision is needed. Hotseat ends up feeling like async play, where you only stop when the game actually wants you.
+Async-feeling Civilization VI for friends who can't all sit at the same machine. Two pieces:
 
-## What it does
+- **A mod** that strips the friction out of hotseat: skips click-to-begin-turn screens, auto-ends turns when no decision is needed, stops the moment you actually have something to do.
+- **A helper CLI** that coordinates a single hotseat save across players via any cloud-synced folder (Dropbox, Drive, OneDrive). One person plays their turn, helper uploads the save; the next player's helper sees it and pulls it down.
 
-- **Skips the "Click to begin your turn" popup** at hotseat handoff (unless that player has a password set).
-- **Skips the "Please Wait" popup** during engine handoff.
-- **Auto-ends turns** when there's nothing for you to do: no units waiting on orders, no choices to make, no notifications open.
-- **Knows when to stop**: anything that calls for your attention (a freshly-produced unit, a met civ, a discovered wonder, a research or civic prompt) pauses the auto-advance until you handle it.
+Together they get you something close to Civ's Play-by-Cloud, but you control the storage and it works for friends who can't always be on at the same time.
 
 ## Install
 
-The mod ships as a small command-line tool that installs the mod files into Civilization VI's Mods folder for you. The tool is a single self-contained binary, no .NET runtime needed.
+Download `civ6-async.exe` (Windows) or `civ6-async` (Linux) from `dist/cli/` in this repo, then run it.
 
-### Windows
-
-Download `civ6-async.exe`, then in any terminal:
-
+**Windows**: double-click for an interactive menu, or in a terminal:
 ```
 civ6-async.exe install
 ```
 
-### Linux
+**Linux**: `chmod +x civ6-async && ./civ6-async install`
 
-Download the `civ6-async` binary, make it executable, then:
+`install` drops the mod into your Civ 6 Mods folder. Auto-detects Windows / native Linux Aspyr / Steam Proton / Steam Flatpak. Override with `--mods-dir <path>` if needed.
 
+Then in Civ: **Additional Content → Mods → tick civ6-async**.
+
+## Playing a shared game
+
+The first time you launch the helper interactively (double-click), it walks you through setup. Or do it from the terminal:
+
+**Host creates the game**:
 ```
-chmod +x civ6-async
-./civ6-async install
+civ6-async game init MyGame --shared "C:\Users\arin\Dropbox\civ6-async" --players "arin,max" --me arin
 ```
 
-Works against the native Aspyr Linux build of Civ 6, the Windows build via Steam Proton, and the Steam Flatpak. The tool auto-detects which install you have.
+**Other players join** (host pastes a one-liner from `civ6-async game invite` in Discord):
+```
+civ6-async game join --shared "C:\Users\max\Dropbox\civ6-async\MyGame"
+```
 
-### Then enable the mod in-game
+**Each turn**:
+- `civ6-async game check` → if it's your turn, downloads the latest save into your Civ saves folder
+- Play in Civ, save the game
+- `civ6-async game submit` → uploads, advances the manifest, optionally pings Discord
 
-Launch Civilization VI → **Additional Content → Mods** → tick **civ6-async** → confirm.
+`civ6-async game watch` runs in the foreground and rings the terminal bell whenever it's your turn or you've just saved a game in Civ. Set up a Discord webhook with `game webhook <url>` to ping the channel on every submit.
 
-### Other commands
+`civ6-async --help` (or `game --help`) lists every command.
 
-| Command | What it does |
-|---|---|
-| `civ6-async install`   | Copy the mod files into Civ's Mods folder. Run again to update. |
-| `civ6-async uninstall` | Remove them. |
-| `civ6-async status`    | One-line summary of whether the mod is installed. |
-| `civ6-async health`    | Detailed report: paths detected, file integrity, write permissions. |
+## Notes
 
-Add `--mods-dir <path>` to override auto-detection. Add `-y` to skip confirmation prompts.
+- Works in single-player and hotseat. Won't load in ranked online multiplayer (Civ 6 anti-cheat blocks unsigned mods there).
+- Helper supports multiple concurrent games (`game list` / `game switch`).
+- Conflict detection on submit refuses bad submits (wrong player, identical to last, stale local save). Override with `--force` if you know what you're doing.
+- Conflicts with any other mod that replaces `PlayerChange.lua` or `ActionPanel.lua`.
 
 ## Building from source
 
@@ -55,8 +60,3 @@ Requires .NET 8 SDK.
 cd src
 ./build.ps1            # produces dist/cli/{win-x64,linux-x64}/civ6-async[.exe]
 ```
-
-## Notes
-
-- Single-player and hotseat. Won't load in ranked online multiplayer (Civ 6 anti-cheat blocks unsigned mods there).
-- Conflicts with other mods that override `PlayerChange.lua` or `ActionPanel.lua`.
