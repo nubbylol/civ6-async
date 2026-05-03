@@ -78,36 +78,79 @@ static async Task<int> RunInteractiveAsync(CommandApp app)
         DrawBanner();
     }
 
+    var topMenu = new[]
+    {
+        new MenuChoice("Whose turn?",          new[] { "game", "status" }),
+        new MenuChoice("Download latest save", new[] { "game", "check"  }),
+        new MenuChoice("Submit my turn",       new[] { "game", "submit" }),
+        new MenuChoice("Watch (background)",   new[] { "game", "watch"  }),
+        new MenuChoice("More options…",        MenuMarkers.Submenu),
+        new MenuChoice("Exit",                 null),
+    };
+
+    var subMenu = new[]
+    {
+        new MenuChoice("List configured games",        new[] { "game", "list"     }),
+        new MenuChoice("Switch active game",           new[] { "game", "switch"   }),
+        new MenuChoice("Game history",                 new[] { "game", "history"  }),
+        new MenuChoice("Invite (paste link)",          new[] { "game", "invite"   }),
+        new MenuChoice("Discord webhook (set/clear)",  new[] { "game", "webhook"  }),
+        new MenuChoice("Repair / validate state",      new[] { "game", "repair"   }),
+        new MenuChoice("Leave a game",                 new[] { "game", "leave"    }),
+        new MenuChoice("Install / update mod",         new[] { "install"          }),
+        new MenuChoice("Uninstall mod",                new[] { "uninstall"        }),
+        new MenuChoice("Mod status",                   new[] { "status"           }),
+        new MenuChoice("Back",                         MenuMarkers.Back),
+    };
+
     while (true)
     {
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<MenuChoice>()
                 .Title("What do you want to do?")
                 .UseConverter(c => c.Label)
-                .AddChoices(
-                    new MenuChoice("Game: check whose turn",     new[] { "game", "status" }),
-                    new MenuChoice("Game: download latest save", new[] { "game", "check" }),
-                    new MenuChoice("Game: submit my turn",       new[] { "game", "submit" }),
-                    new MenuChoice("Game: watch (background)",   new[] { "game", "watch" }),
-                    new MenuChoice("Game: list configured games",new[] { "game", "list" }),
-                    new MenuChoice("Game: switch active game",   new[] { "game", "switch" }),
-                    new MenuChoice("Game: history",              new[] { "game", "history" }),
-                    new MenuChoice("Game: invite (paste link)",  new[] { "game", "invite" }),
-                    new MenuChoice("Mod: install / update",      new[] { "install" }),
-                    new MenuChoice("Mod: uninstall",             new[] { "uninstall" }),
-                    new MenuChoice("Mod: status",                new[] { "status" }),
-                    new MenuChoice("Exit",                       null)));
+                .AddChoices(topMenu));
 
         if (choice.Args is null) return 0;
 
-        AnsiConsole.WriteLine();
-        await app.RunAsync(choice.Args);
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Press any key to return to the menu...[/]");
-        Console.ReadKey(intercept: true);
+        if (ReferenceEquals(choice.Args, MenuMarkers.Submenu))
+        {
+            await RunSubmenuAsync(app, subMenu);
+            continue;
+        }
+
+        await RunChoiceAsync(app, choice.Args);
+    }
+}
+
+static async Task RunSubmenuAsync(CommandApp app, MenuChoice[] choices)
+{
+    while (true)
+    {
         AnsiConsole.Clear();
         DrawBanner();
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<MenuChoice>()
+                .Title("More options")
+                .UseConverter(c => c.Label)
+                .PageSize(15)
+                .AddChoices(choices));
+
+        if (ReferenceEquals(choice.Args, MenuMarkers.Back)) return;
+        if (choice.Args is null) Environment.Exit(0);
+        await RunChoiceAsync(app, choice.Args!);
     }
+}
+
+static async Task RunChoiceAsync(CommandApp app, string[] args)
+{
+    AnsiConsole.WriteLine();
+    await app.RunAsync(args);
+    AnsiConsole.WriteLine();
+    AnsiConsole.MarkupLine("[grey]Press any key to return to the menu...[/]");
+    Console.ReadKey(intercept: true);
+    AnsiConsole.Clear();
+    DrawBanner();
 }
 
 static void DrawBanner()
@@ -118,3 +161,9 @@ static void DrawBanner()
 }
 
 internal sealed record MenuChoice(string Label, string[]? Args);
+
+internal static class MenuMarkers
+{
+    public static readonly string[] Submenu = new[] { "__submenu__" };
+    public static readonly string[] Back    = new[] { "__back__"    };
+}
