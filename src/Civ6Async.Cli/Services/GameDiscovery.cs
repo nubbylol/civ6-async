@@ -5,19 +5,19 @@ using Dropbox.Api.Files;
 namespace Civ6Async.Cli.Services;
 
 /// <summary>
-/// Looks up games available under a storage root — used by the wizard's
-/// join flow so users pick from a list instead of typing a path. Provider-
-/// specific because IGameStorage is per-game; discovery operates on a
-/// parent root.
+/// Looks up games available under a storage root. Used by the wizard's
+/// join flow so users pick from a list instead of typing a full game-
+/// folder path.
+///
+/// Non-recursive by design: the host puts games directly under the user-
+/// supplied root (e.g. /MyGame next to App folder root for Dropbox, or
+/// MyGame as a subfolder of a sync folder locally). For Dropbox App folder
+/// tokens, root = "" (empty) means the App folder root itself.
 /// </summary>
 internal static class GameDiscovery
 {
     public sealed record Found(string Name, string FullPath, GameManifest Manifest);
 
-    /// <summary>
-    /// Walk subfolders of <paramref name="root"/>; each one containing a
-    /// turn_state.json is a discovered game.
-    /// </summary>
     public static IReadOnlyList<Found> Local(string root)
     {
         if (!Directory.Exists(root)) return Array.Empty<Found>();
@@ -36,11 +36,6 @@ internal static class GameDiscovery
         return found;
     }
 
-    /// <summary>
-    /// Lists folders directly under <paramref name="rootPath"/> in the
-    /// Dropbox account the token belongs to; for each one, looks up
-    /// turn_state.json and treats it as a game if present.
-    /// </summary>
     public static IReadOnlyList<Found> Dropbox(string token, string rootPath)
     {
         var found = new List<Found>();
@@ -51,7 +46,7 @@ internal static class GameDiscovery
         {
             client = new DropboxClient(token);
 
-            ListFolderResult? listing = null;
+            ListFolderResult? listing;
             try
             {
                 listing = client.Files.ListFolderAsync(normalized).GetAwaiter().GetResult();
@@ -59,7 +54,6 @@ internal static class GameDiscovery
             catch (ApiException<ListFolderError> ex) when (
                 ex.ErrorResponse.IsPath && ex.ErrorResponse.AsPath.Value.IsNotFound)
             {
-                // Root doesn't exist yet — no games to discover.
                 return found;
             }
 
@@ -79,8 +73,7 @@ internal static class GameDiscovery
         }
         catch
         {
-            // Token bad / network bad / etc. — caller treats empty as
-            // "couldn't discover; let user paste a path manually".
+            // Bad token / network / etc. — caller falls back to manual entry.
         }
         finally
         {
@@ -92,6 +85,7 @@ internal static class GameDiscovery
     private static string NormalizeBase(string p)
     {
         var s = p.Trim().Replace('\\', '/');
+        if (string.IsNullOrEmpty(s)) return "";   // App folder root.
         if (!s.StartsWith('/')) s = "/" + s;
         return s.TrimEnd('/');
     }

@@ -170,14 +170,17 @@ internal static class FirstRunWizard
         AnsiConsole.MarkupLine("[grey]Paste the access token the host sent you.[/]");
         var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
 
-        AnsiConsole.MarkupLine("[grey]Folder root to scan (default '/civ6-async').[/]");
+        AnsiConsole.MarkupLine("[grey]Folder root to scan. Press Enter for the App folder root (default).[/]");
         var rootPath = AnsiConsole.Prompt(
-            new TextPrompt<string>("Dropbox root folder:").DefaultValue("/civ6-async"));
+            new TextPrompt<string>("Dropbox root folder:")
+                .AllowEmpty()
+                .DefaultValue(""));
 
+        var rootLabel = string.IsNullOrEmpty(rootPath) ? "App folder root" : rootPath;
         IReadOnlyList<GameDiscovery.Found>? games = null;
         AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
-            .Start($"Looking for games under {rootPath}…",
+            .Start($"Looking for games under {rootLabel}…",
                 _ => games = GameDiscovery.Dropbox(token, rootPath));
 
         if (games is null || games.Count == 0)
@@ -201,7 +204,8 @@ internal static class FirstRunWizard
         if (games.Count == 1)
             AnsiConsole.MarkupLine($"[grey]Found one game:[/] [bold]{picked.Name.EscapeMarkup()}[/]");
 
-        return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", picked.FullPath, "--me", name };
+        var resolvedName = ResolveNameInManifest(name, picked.Manifest);
+        return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", picked.FullPath, "--me", resolvedName };
     }
 
     private static string[]? BuildLocalJoinArgs(string name)
@@ -233,6 +237,26 @@ internal static class FirstRunWizard
         if (games.Count == 1)
             AnsiConsole.MarkupLine($"[grey]Found one game:[/] [bold]{picked.Name.EscapeMarkup()}[/]");
 
-        return new[] { "game", "join", "--shared", picked.FullPath, "--me", name };
+        var resolvedName = ResolveNameInManifest(name, picked.Manifest);
+        return new[] { "game", "join", "--shared", picked.FullPath, "--me", resolvedName };
+    }
+
+    /// <summary>
+    /// If the typed name matches a player in the manifest (case-insensitive)
+    /// it's used as-is. Otherwise, list the manifest's players so the user
+    /// picks which one they actually are. This catches cases where the host
+    /// registered the player under a slightly different spelling.
+    /// </summary>
+    private static string ResolveNameInManifest(string typedName, GameManifest manifest)
+    {
+        if (manifest.Players.Any(p => p.Equals(typedName, StringComparison.OrdinalIgnoreCase)))
+            return typedName;
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine($"[yellow]'{typedName.EscapeMarkup()}' isn't a player in this game.[/]");
+        return AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Which player are you?")
+                .AddChoices(manifest.Players));
     }
 }

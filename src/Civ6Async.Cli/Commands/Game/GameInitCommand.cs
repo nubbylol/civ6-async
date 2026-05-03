@@ -27,8 +27,8 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
         public string? DropboxToken { get; init; }
 
         [CommandOption("--dropbox-folder <PATH>")]
-        [Description("when --provider=dropbox: Dropbox folder root (default: /civ6-async).")]
-        public string DropboxFolder { get; init; } = "/civ6-async";
+        [Description("when --provider=dropbox: Dropbox folder root (default: App folder root).")]
+        public string DropboxFolder { get; init; } = "";
 
         [CommandOption("--players <CSV>")]
         [Description("Comma-separated turn order, e.g. \"arin,max,jess\".")]
