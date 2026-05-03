@@ -1,4 +1,5 @@
 # civ6-async
+https://github.com/nubbylol/civ6-async/blob/master/README.md
 
 Async-feeling Civilization VI for friends who can't all sit at the same machine. Two pieces:
 
@@ -6,6 +7,32 @@ Async-feeling Civilization VI for friends who can't all sit at the same machine.
 - **A helper CLI** that coordinates a single hotseat save across players via any cloud-synced folder (Google Drive, Dropbox, OneDrive). One person plays their turn, helper uploads the save; the next player's helper sees it and pulls it down.
 
 Together they get you something close to Civ's Play-by-Cloud, but you control the storage and it works for friends who can't always be on at the same time.
+
+## TL;DR — get playing in 5 minutes
+
+**Everyone needs**: Civilization VI, a shared cloud folder (Google Drive easiest — anyone can sync to it on Windows / Mac / Steam Deck via rclone), and `civ6-async` from `dist/cli/`.
+
+**The host** (one person, once per game):
+
+1. Run `civ6-async` (double-click on Windows; `chmod +x civ6-async && ./civ6-async` on Linux).
+2. First-run wizard: pick a player name → **Create a new game** → enter a game name → enter your shared-folder root (e.g. `G:\My Drive\civ6-async`) → list every player including yourself.
+3. Run **More options → Invite (paste link)**, copy the line, paste it in your Discord channel.
+4. Optional: **More options → Discord webhook (set/clear)** to get pinged in Discord on every submit.
+5. In Civ: **Additional Content → Mods → tick civ6-async**, start a hotseat game with one civ per player, save it once.
+
+**Everyone else**:
+
+1. Run `civ6-async` → pick your player name → **Join an existing game** → paste the path the host sent you.
+2. In Civ: tick the **civ6-async** mod the same way.
+
+**Every turn** (anyone):
+
+1. Open `civ6-async`, pick **Whose turn?** to check.
+2. If it's yours, pick **Download latest save** (drops it into your Civ saves folder).
+3. Open Civ → Load Game → pick the file beginning `civ6-async-…`. Play your turn, save the game.
+4. Back in `civ6-async`, pick **Submit my turn**, choose the save you just made.
+
+That's it.
 
 ## Install
 
