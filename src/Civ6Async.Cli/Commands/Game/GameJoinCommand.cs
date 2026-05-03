@@ -35,7 +35,11 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
         if (!string.IsNullOrEmpty(settings.DropboxToken) && !string.IsNullOrEmpty(settings.DropboxFolder))
         {
             var dropbox = new DropboxStorage(settings.DropboxToken, settings.DropboxFolder);
-            var verify  = dropbox.VerifyAccess();
+
+            string? verify = null;
+            AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .Start("Verifying Dropbox access…", _ => verify = dropbox.VerifyAccess());
             if (verify is not null)
             {
                 AnsiConsole.MarkupLine($"[red]Dropbox access check failed:[/] {verify.EscapeMarkup()}");

@@ -80,7 +80,11 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
 
             var basePath = settings.DropboxFolder.TrimEnd('/') + "/" + settings.Name;
             var dropbox  = new DropboxStorage(settings.DropboxToken, basePath);
-            var verify   = dropbox.VerifyAccess();
+
+            string? verify = null;
+            AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .Start("Verifying Dropbox access…", _ => verify = dropbox.VerifyAccess());
             if (verify is not null)
             {
                 AnsiConsole.MarkupLine($"[red]Dropbox access check failed:[/] {verify.EscapeMarkup()}");
