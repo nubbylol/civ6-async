@@ -89,6 +89,9 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
         AnsiConsole.MarkupLine($"  First turn:    [bold]{players[0]}[/]");
         AnsiConsole.MarkupLine($"  You:           [bold]{settings.Me}[/]");
         AnsiConsole.WriteLine();
+
+        ModBootstrap.EnsureInstalled();
+        AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine(
             settings.Me.Equals(players[0], StringComparison.OrdinalIgnoreCase)
                 ? "It's [green]your turn[/] first. Play in Civ, save, then run [bold]civ6-async game submit[/]."

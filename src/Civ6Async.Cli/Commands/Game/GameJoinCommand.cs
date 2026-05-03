@@ -49,6 +49,9 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
 
         AnsiConsole.MarkupLine($"[green]Joined[/] [bold]{manifest.GameName}[/] as [bold]{me}[/].");
         AnsiConsole.MarkupLine($"Currently on turn [bold]{manifest.CurrentTurn}[/], waiting on [yellow]{manifest.CurrentPlayer}[/].");
+        AnsiConsole.WriteLine();
+
+        ModBootstrap.EnsureInstalled();
         return 0;
     }
 }
