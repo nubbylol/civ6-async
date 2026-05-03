@@ -78,6 +78,34 @@ internal static class PlatformPaths
     }
 
     /// <summary>
+    /// Civ 6's Lua.log lives under the per-user "Logs" folder (sibling of
+    /// Mods / Saves). Same per-OS detection as the Mods folder; we just
+    /// step out of "Mods" and into "Logs/Lua.log".
+    /// </summary>
+    public static string? AutoDetectLuaLogPath()
+    {
+        var modsDir = AutoDetectModsDir();
+        if (modsDir is null) return null;
+        var civUser = Path.GetDirectoryName(modsDir);
+        if (civUser is null) return null;
+        // On Windows the Logs/ folder lives in %LOCALAPPDATA%\Firaxis Games\...,
+        // not in My Games\... where the user-installed Mods do. Try both.
+        var candidates = new[]
+        {
+            Path.Combine(civUser, "Logs", "Lua.log"),
+            // %LOCALAPPDATA% override on Windows.
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Firaxis Games", "Sid Meier's Civilization VI", "Logs", "Lua.log")
+                : null,
+        };
+        foreach (var c in candidates)
+            if (c is not null && File.Exists(c)) return c;
+        return null;
+    }
+
+    /// <summary>
     /// Per-user app data root for civ6-async itself (not Civ). Used for the
     /// helper's own config.json (player identity, active game pointer).
     /// </summary>

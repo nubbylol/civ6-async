@@ -65,23 +65,31 @@ internal sealed class GameManifest
         return "sha256:" + Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    /// <summary>Advance the manifest to the next player's turn after a successful submit.</summary>
-    public void AdvanceTurn(string fromPlayer, int fromTurn, string saveFile, string hash)
+    /// <summary>
+    /// Record a submitted save and set the next state. Caller supplies the
+    /// authoritative <paramref name="nextTurn"/> and <paramref name="nextPlayer"/>
+    /// — usually pulled from a Lua-log save_complete event so we capture the
+    /// real game state after the in-game mod cycled through any number of
+    /// auto-ended turns.
+    /// </summary>
+    public void RecordSubmit(
+        string submittingPlayer,
+        int    submittedAtTurn,
+        string saveFile,
+        string hash,
+        int    nextTurn,
+        string nextPlayer)
     {
-        var nextIdx = (Players.IndexOf(fromPlayer) + 1) % Players.Count;
-        // Only bump turn counter once we've cycled back to the first player.
-        var nextTurn = nextIdx == 0 ? fromTurn + 1 : fromTurn;
-
         History.Add(new HistoryEntry
         {
-            Turn    = fromTurn,
-            Player  = fromPlayer,
+            Turn    = submittedAtTurn,
+            Player  = submittingPlayer,
             SavedAs = saveFile,
             Hash    = hash,
             At      = DateTime.UtcNow,
         });
 
-        CurrentPlayer         = Players[nextIdx];
+        CurrentPlayer         = nextPlayer;
         CurrentTurn           = nextTurn;
         LatestSaveFile        = saveFile;
         LatestSaveHash        = hash;

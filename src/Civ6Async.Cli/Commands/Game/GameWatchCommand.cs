@@ -31,9 +31,12 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         var sharedDir = config!.ActiveGameEntry!.SharedFolderPath;
         var me        = config.PlayerName!;
 
+        var luaLogPath = PlatformPaths.AutoDetectLuaLogPath();
+
         AnsiConsole.MarkupLine($"[green]Watching[/] [bold]{manifest!.GameName}[/] as [bold]{me}[/].");
         AnsiConsole.MarkupLine($"  Local saves:  [grey]{savesDir.EscapeMarkup()}[/]");
         AnsiConsole.MarkupLine($"  Shared:       [grey]{sharedDir.EscapeMarkup()}[/]");
+        AnsiConsole.MarkupLine($"  Lua.log:      [grey]{(luaLogPath ?? "(not found)").EscapeMarkup()}[/]");
         AnsiConsole.MarkupLine("[grey]Press Ctrl+C to stop.[/]");
         AnsiConsole.WriteLine();
         PrintStatus(manifest, me);
@@ -43,9 +46,11 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
 
         // Track which manifest state we last announced so the shared-folder
         // watcher doesn't double-fire on its own writes.
-        var lastSeenTurn   = manifest.CurrentTurn;
-        var lastSeenPlayer = manifest.CurrentPlayer;
-        var lastSavesScan  = DateTimeOffset.UtcNow;
+        var lastSeenTurn      = manifest.CurrentTurn;
+        var lastSeenPlayer    = manifest.CurrentPlayer;
+        var lastSavesScan     = DateTimeOffset.UtcNow;
+        var lastLogScan       = DateTimeOffset.UtcNow.AddDays(-1);  // force first read
+        var announcedDivergeAt = -1;                                 // prevents repeat warnings
 
         using var savesWatcher = new FileSystemWatcher(savesDir, "*.Civ6Save")
         {
@@ -61,6 +66,20 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
             EnableRaisingEvents  = true,
         };
         sharedWatcher.Changed += (_, _) => OnManifestChanged();
+
+        FileSystemWatcher? logWatcher = null;
+        if (luaLogPath is not null)
+        {
+            var logDir  = Path.GetDirectoryName(luaLogPath)!;
+            var logFile = Path.GetFileName(luaLogPath);
+            logWatcher = new FileSystemWatcher(logDir, logFile)
+            {
+                NotifyFilter        = NotifyFilters.LastWrite | NotifyFilters.Size,
+                EnableRaisingEvents = true,
+            };
+            logWatcher.Changed += (_, _) => OnLuaLogChanged();
+        }
+        using var _logWatcherDisposable = logWatcher;
 
         // Block until Ctrl+C.
         try { stop.Token.WaitHandle.WaitOne(); }
@@ -95,6 +114,35 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
                 $"[green]►[/] Civ saved [grey]{name.EscapeMarkup()}[/] — " +
                 "ready to submit. Run [bold]civ6-async game submit[/].");
             Beep();
+        }
+
+        void OnLuaLogChanged()
+        {
+            // Civ writes the log very frequently; debounce to once a second.
+            var now = DateTimeOffset.UtcNow;
+            if ((now - lastLogScan).TotalSeconds < 1) return;
+            lastLogScan = now;
+
+            // Most recent save_complete from civ6-async events.
+            var ev = LuaLogReader.FindLatest(new[] { "save_complete" }, luaLogPath);
+            if (ev is null) return;
+
+            var current = GameManifest.TryLoad(sharedDir);
+            if (current is null) return;
+
+            // Divergence: in-game turn is ahead of what the manifest thinks.
+            // If you've played and saved but not submitted, this fires.
+            if (ev.Turn is int liveTurn
+                && liveTurn > current.CurrentTurn
+                && liveTurn != announcedDivergeAt)
+            {
+                announcedDivergeAt = liveTurn;
+                AnsiConsole.MarkupLine(
+                    $"[yellow]►[/] In-game turn is [bold]{liveTurn}[/] but the shared manifest is on " +
+                    $"[bold]{current.CurrentTurn}[/]. " +
+                    "Run [bold]civ6-async game submit[/] when ready.");
+                Beep();
+            }
         }
 
         void OnManifestChanged()

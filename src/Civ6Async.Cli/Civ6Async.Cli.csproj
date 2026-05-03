@@ -43,6 +43,12 @@
     <EmbeddedResource Include="..\..\UI\ForceAutoEndTurn.xml">
       <LogicalName>ModAssets/UI/ForceAutoEndTurn.xml</LogicalName>
     </EmbeddedResource>
+    <EmbeddedResource Include="..\..\UI\EventLogger.lua">
+      <LogicalName>ModAssets/UI/EventLogger.lua</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\UI\EventLogger.xml">
+      <LogicalName>ModAssets/UI/EventLogger.xml</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

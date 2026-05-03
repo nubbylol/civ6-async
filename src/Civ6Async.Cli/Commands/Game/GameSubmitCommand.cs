@@ -61,33 +61,61 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
 
         try
         {
+            // Pull the actual game state from the most recent EventLogger
+            // save_complete event — this is the source of truth even if the
+            // in-game mod auto-cycled through several players' turns during
+            // the user's session.
+            var saveEvent = LuaLogReader.FindLatest(new[] { "save_complete" });
+
+            int    realTurn;
+            string nextPlayer;
+
+            if (saveEvent is { Turn: int t, Player: { } p })
+            {
+                realTurn   = t;
+                nextPlayer = ResolveNextPlayer(p, manifest!.Players);
+                AnsiConsole.MarkupLine(
+                    $"[grey]Lua.log says save was at turn {t}, active player {p}.[/]");
+            }
+            else
+            {
+                // No event — fall back to the manifest's current state and
+                // the dumb "next player in list" advance. Warn loudly.
+                realTurn   = manifest!.CurrentTurn;
+                nextPlayer = manifest.Players[(manifest.Players.IndexOf(config.PlayerName!) + 1) % manifest.Players.Count];
+                AnsiConsole.MarkupLine(
+                    "[yellow]Warning:[/] no civ6-async save event found in Lua.log. " +
+                    "Submitting with assumed turn/player advance — verify state after.");
+            }
+
             // Name the file in the shared folder so a glance at the folder shows
-            // who submitted what. Original local name is preserved on the player's
-            // own machine.
-            var dstName = $"{manifest!.GameName}_T{manifest.CurrentTurn:D3}_{config.PlayerName}.Civ6Save";
+            // who submitted what.
+            var dstName = $"{manifest.GameName}_T{realTurn:D3}_{config.PlayerName}.Civ6Save";
             var dst     = Path.Combine(config.ActiveGameEntry!.SharedFolderPath, dstName);
             File.Copy(savePath, dst, overwrite: true);
 
             var hash = GameManifest.HashFile(dst);
-            var fromTurn   = manifest.CurrentTurn;
-            var fromPlayer = config.PlayerName!;
-            manifest.AdvanceTurn(fromPlayer, fromTurn, dstName, hash);
-            manifest.Save(config.ActiveGameEntry!.SharedFolderPath);
+            manifest.RecordSubmit(
+                submittingPlayer: config.PlayerName!,
+                submittedAtTurn:  realTurn,
+                saveFile:         dstName,
+                hash:             hash,
+                nextTurn:         realTurn,
+                nextPlayer:       nextPlayer);
+            manifest.Save(config.ActiveGameEntry.SharedFolderPath);
 
             AnsiConsole.MarkupLine(
-                $"[green]Submitted turn {fromTurn} as[/] [grey]{dstName.EscapeMarkup()}[/]");
+                $"[green]Submitted turn {realTurn} as[/] [grey]{dstName.EscapeMarkup()}[/]");
             AnsiConsole.MarkupLine($"Next up: [yellow]{manifest.CurrentPlayer}[/] (turn {manifest.CurrentTurn}).");
 
             // Backup retention: trim old per-turn .Civ6Save files in the
-            // shared folder, keeping the N most recent. Keeps the folder
-            // tidy on long campaigns; leaves room for rollback if a recent
-            // submit was bad.
-            TrimOldSaves(config.ActiveGameEntry!.SharedFolderPath, manifest, keepLast: 5);
+            // shared folder, keeping the N most recent.
+            TrimOldSaves(config.ActiveGameEntry.SharedFolderPath, manifest, keepLast: 5);
 
             if (!string.IsNullOrEmpty(manifest.DiscordWebhookUrl))
             {
                 var msg =
-                    $"**{manifest.GameName}** — turn {fromTurn} submitted by {fromPlayer}. " +
+                    $"**{manifest.GameName}** — turn {realTurn} submitted by {config.PlayerName}. " +
                     $"It's now **{manifest.CurrentPlayer}**'s turn (T{manifest.CurrentTurn}).";
                 var ok = DiscordWebhook.PostAsync(manifest.DiscordWebhookUrl, msg)
                     .GetAwaiter().GetResult();
@@ -109,6 +137,18 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
         AnsiConsole.MarkupLine($"[yellow]⚠  {c.Title}[/]");
         AnsiConsole.MarkupLine($"   {c.Detail}");
         AnsiConsole.MarkupLine($"   [bold]How to fix:[/] {c.Remediation}");
+    }
+
+    /// <summary>
+    /// Map the active player at save time (from Lua.log, where the value is the
+    /// Civ "player name" string) to one of the manifest's player identifiers,
+    /// case-insensitively. Falls back to next-in-list if no match.
+    /// </summary>
+    private static string ResolveNextPlayer(string activePlayerAtSave, List<string> manifestPlayers)
+    {
+        var match = manifestPlayers.FirstOrDefault(
+            p => p.Equals(activePlayerAtSave, StringComparison.OrdinalIgnoreCase));
+        return match ?? manifestPlayers[0];
     }
 
     private static void TrimOldSaves(string sharedFolder, GameManifest manifest, int keepLast)

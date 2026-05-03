@@ -13,6 +13,8 @@
     <File>UI/ActionPanel.lua</File>
     <File>UI/ForceAutoEndTurn.lua</File>
     <File>UI/ForceAutoEndTurn.xml</File>
+    <File>UI/EventLogger.lua</File>
+    <File>UI/EventLogger.xml</File>
   </Files>
   <InGameActions>
     <!--
@@ -32,6 +34,12 @@
         <Context>InGame</Context>
       </Properties>
       <File>UI/ForceAutoEndTurn.xml</File>
+    </AddUserInterfaces>
+    <AddUserInterfaces id="CIV6_ASYNC_EVENT_LOGGER">
+      <Properties>
+        <Context>InGame</Context>
+      </Properties>
+      <File>UI/EventLogger.xml</File>
     </AddUserInterfaces>
   </InGameActions>
 </Mod>

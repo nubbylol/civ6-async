@@ -18,6 +18,8 @@ internal static class EmbeddedMod
         new EmbeddedFile("UI/ActionPanel.lua",        "ModAssets/UI/ActionPanel.lua"),
         new EmbeddedFile("UI/ForceAutoEndTurn.lua",   "ModAssets/UI/ForceAutoEndTurn.lua"),
         new EmbeddedFile("UI/ForceAutoEndTurn.xml",   "ModAssets/UI/ForceAutoEndTurn.xml"),
+        new EmbeddedFile("UI/EventLogger.lua",        "ModAssets/UI/EventLogger.lua"),
+        new EmbeddedFile("UI/EventLogger.xml",        "ModAssets/UI/EventLogger.xml"),
     };
 
     public static byte[] Read(string resourceName)
