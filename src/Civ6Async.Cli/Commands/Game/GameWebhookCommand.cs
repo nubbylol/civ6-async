@@ -24,16 +24,37 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
         var (config, manifest, err) = GameContext.Resolve();
         if (err is not null) { AnsiConsole.MarkupLine(err); return 1; }
 
-        if (settings.Url is null)
+        // No argument: show current state, then offer interactive set/clear.
+        // This is the path the interactive submenu hits.
+        var url = settings.Url;
+        if (url is null)
         {
             AnsiConsole.MarkupLine(
                 manifest!.DiscordWebhookUrl is null
                     ? "[grey]No webhook configured.[/]"
-                    : $"[grey]Webhook:[/] {manifest.DiscordWebhookUrl.EscapeMarkup()}");
-            return 0;
+                    : $"[grey]Current webhook:[/] {manifest.DiscordWebhookUrl.EscapeMarkup()}");
+
+            var action = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("What do you want to do?")
+                    .AddChoices(
+                        "Set a new webhook URL",
+                        manifest!.DiscordWebhookUrl is null ? "Cancel" : "Clear the current webhook",
+                        "Cancel"));
+
+            if (action.StartsWith("Cancel", StringComparison.OrdinalIgnoreCase)) return 0;
+            if (action.StartsWith("Clear",  StringComparison.OrdinalIgnoreCase)) url = "clear";
+            else
+            {
+                url = AnsiConsole.Prompt(
+                    new TextPrompt<string>("Discord webhook URL:")
+                        .Validate(s => DiscordWebhook.LooksValid(s)
+                            ? ValidationResult.Success()
+                            : ValidationResult.Error("[red]Doesn't look like a Discord webhook URL.[/]")));
+            }
         }
 
-        if (settings.Url.Equals("clear", StringComparison.OrdinalIgnoreCase))
+        if (url.Equals("clear", StringComparison.OrdinalIgnoreCase))
         {
             manifest!.DiscordWebhookUrl = null;
             manifest.Save(config!.ActiveGameEntry!.SharedFolderPath);
@@ -41,7 +62,7 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
             return 0;
         }
 
-        if (!DiscordWebhook.LooksValid(settings.Url))
+        if (!DiscordWebhook.LooksValid(url))
         {
             AnsiConsole.MarkupLine(
                 "[red]Doesn't look like a Discord webhook URL.[/] " +
@@ -49,12 +70,12 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
             return 1;
         }
 
-        manifest!.DiscordWebhookUrl = settings.Url;
+        manifest!.DiscordWebhookUrl = url;
         manifest.Save(config!.ActiveGameEntry!.SharedFolderPath);
 
         // Smoke-test it so the host knows it works before relying on it.
         var ok = DiscordWebhook.PostAsync(
-            settings.Url,
+            url,
             $"**{manifest.GameName}** — civ6-async webhook attached.")
             .GetAwaiter().GetResult();
 
