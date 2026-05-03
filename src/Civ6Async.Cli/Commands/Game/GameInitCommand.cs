@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Civ6Async.Cli.Services;
+using Civ6Async.Cli.Services.Storage;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -10,19 +11,31 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
     public sealed class Settings : CommandSettings
     {
         [CommandArgument(0, "<NAME>")]
-        [Description("Name for the new game (used as folder name + manifest field).")]
+        [Description("Name for the new game.")]
         public required string Name { get; init; }
 
+        [CommandOption("--provider <PROVIDER>")]
+        [Description("Storage provider: local (default) or dropbox.")]
+        public string Provider { get; init; } = "local";
+
         [CommandOption("--shared <PATH>")]
-        [Description("Path to the cloud-synced shared folder (e.g. ~/Dropbox/civ6-async).")]
-        public required string SharedRoot { get; init; }
+        [Description("when --provider=local: Path to the cloud-synced shared folder root (each game gets a subfolder).")]
+        public string? SharedRoot { get; init; }
+
+        [CommandOption("--dropbox-token <TOKEN>")]
+        [Description("when --provider=dropbox: Dropbox access token (from your app at dropbox.com/developers/apps).")]
+        public string? DropboxToken { get; init; }
+
+        [CommandOption("--dropbox-folder <PATH>")]
+        [Description("when --provider=dropbox: Dropbox folder root (default: /civ6-async).")]
+        public string DropboxFolder { get; init; } = "/civ6-async";
 
         [CommandOption("--players <CSV>")]
         [Description("Comma-separated turn order, e.g. \"arin,max,jess\".")]
         public required string PlayersCsv { get; init; }
 
         [CommandOption("--me <NAME>")]
-        [Description("Which player you are. Must be one of --players. Saved locally.")]
+        [Description("Which player you are. Must be one of --players.")]
         public required string Me { get; init; }
 
         [CommandOption("--webhook <URL>")]
@@ -47,24 +60,66 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
             return 1;
         }
 
-        var sharedFolder = Path.Combine(settings.SharedRoot, settings.Name);
-        if (Directory.Exists(sharedFolder) &&
-            File.Exists(GameManifest.ManifestPathIn(sharedFolder)))
+        if (settings.Webhook is not null && !DiscordWebhook.LooksValid(settings.Webhook))
         {
-            AnsiConsole.MarkupLine(
-                $"[red]A game already exists at[/] [grey]{sharedFolder.EscapeMarkup()}[/]. " +
-                "Use [bold]game join[/] instead, or pick a different name.");
+            AnsiConsole.MarkupLine("[red]--webhook doesn't look like a Discord webhook URL.[/]");
             return 1;
         }
 
-        Directory.CreateDirectory(sharedFolder);
+        IGameStorage    storage;
+        string          providerLabel;
+        Action<LocalConfig> register;
 
-        if (settings.Webhook is not null && !DiscordWebhook.LooksValid(settings.Webhook))
+        if (settings.Provider.Equals("dropbox", StringComparison.OrdinalIgnoreCase))
         {
-            AnsiConsole.MarkupLine(
-                "[red]--webhook doesn't look like a Discord webhook URL.[/] " +
-                "Expected: https://discord.com/api/webhooks/...");
-            return 1;
+            if (string.IsNullOrEmpty(settings.DropboxToken))
+            {
+                AnsiConsole.MarkupLine("[red]--dropbox-token is required for --provider dropbox.[/]");
+                return 1;
+            }
+
+            var basePath = settings.DropboxFolder.TrimEnd('/') + "/" + settings.Name;
+            var dropbox  = new DropboxStorage(settings.DropboxToken, basePath);
+            var verify   = dropbox.VerifyAccess();
+            if (verify is not null)
+            {
+                AnsiConsole.MarkupLine($"[red]Dropbox access check failed:[/] {verify.EscapeMarkup()}");
+                return 1;
+            }
+
+            if (dropbox.Exists(GameManifest.FileName))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red]A game already exists at[/] [grey]{basePath.EscapeMarkup()}[/]. " +
+                    "Use [bold]game join[/] instead, or pick a different name.");
+                return 1;
+            }
+
+            storage       = dropbox;
+            providerLabel = $"Dropbox: {basePath}";
+            register      = c => c.RegisterAndActivateDropbox(settings.Name, settings.DropboxToken!, basePath);
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(settings.SharedRoot))
+            {
+                AnsiConsole.MarkupLine("[red]--shared is required for --provider local.[/]");
+                return 1;
+            }
+
+            var sharedFolder = Path.Combine(settings.SharedRoot, settings.Name);
+            if (Directory.Exists(sharedFolder)
+                && File.Exists(Path.Combine(sharedFolder, GameManifest.FileName)))
+            {
+                AnsiConsole.MarkupLine(
+                    $"[red]A game already exists at[/] [grey]{sharedFolder.EscapeMarkup()}[/]. " +
+                    "Use [bold]game join[/] instead, or pick a different name.");
+                return 1;
+            }
+
+            storage       = new LocalFolderStorage(sharedFolder);
+            providerLabel = $"local folder: {sharedFolder}";
+            register      = c => c.RegisterAndActivate(settings.Name, sharedFolder);
         }
 
         var manifest = new GameManifest
@@ -76,22 +131,23 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
             CurrentTurn       = 1,
             DiscordWebhookUrl = settings.Webhook,
         };
-        manifest.Save(sharedFolder);
+        manifest.Save(storage);
 
         var config = LocalConfig.Load();
         config.PlayerName = settings.Me;
-        config.RegisterAndActivate(settings.Name, sharedFolder);
+        register(config);
         config.Save();
 
         AnsiConsole.MarkupLine($"[green]Created game[/] [bold]{settings.Name}[/]");
-        AnsiConsole.MarkupLine($"  Shared folder: [grey]{sharedFolder.EscapeMarkup()}[/]");
-        AnsiConsole.MarkupLine($"  Players:       {string.Join(" → ", players)}");
-        AnsiConsole.MarkupLine($"  First turn:    [bold]{players[0]}[/]");
-        AnsiConsole.MarkupLine($"  You:           [bold]{settings.Me}[/]");
+        AnsiConsole.MarkupLine($"  Storage:    [grey]{providerLabel.EscapeMarkup()}[/]");
+        AnsiConsole.MarkupLine($"  Players:    {string.Join(" → ", players)}");
+        AnsiConsole.MarkupLine($"  First turn: [bold]{players[0]}[/]");
+        AnsiConsole.MarkupLine($"  You:        [bold]{settings.Me}[/]");
         AnsiConsole.WriteLine();
 
         ModBootstrap.EnsureInstalled();
         AnsiConsole.WriteLine();
+
         AnsiConsole.MarkupLine(
             settings.Me.Equals(players[0], StringComparison.OrdinalIgnoreCase)
                 ? "It's [green]your turn[/] first. Play in Civ, save, then run [bold]civ6-async game submit[/]."

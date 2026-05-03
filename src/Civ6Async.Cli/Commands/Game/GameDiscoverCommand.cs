@@ -63,7 +63,7 @@ internal sealed class GameDiscoverCommand : Command<GameDiscoverCommand.Settings
         {
             if (File.Exists(Path.Combine(dir, GameManifest.FileName)))
             {
-                var m = GameManifest.TryLoad(dir);
+                var m = GameManifest.TryLoad(new Civ6Async.Cli.Services.Storage.LocalFolderStorage(dir));
                 if (m is not null) found.Add((dir, m));
             }
             if (depthLeft <= 0) return;

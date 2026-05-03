@@ -20,7 +20,17 @@ internal sealed class LocalConfig
 
     public sealed class GameEntry
     {
-        public required string SharedFolderPath { get; set; }
+        /// <summary>Local-folder path. Either this or DropboxToken must be set.</summary>
+        public string? SharedFolderPath { get; set; }
+
+        /// <summary>Storage provider tag — "local" or "dropbox". Null = legacy local.</summary>
+        public string? Provider { get; set; }
+
+        /// <summary>Dropbox access token (Provider == "dropbox").</summary>
+        public string? DropboxToken { get; set; }
+
+        /// <summary>Dropbox folder path, e.g. "/civ6-async/MyGame" (Provider == "dropbox").</summary>
+        public string? DropboxBasePath { get; set; }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -80,10 +90,26 @@ internal sealed class LocalConfig
         AtomicJsonWriter.Write(path, this, JsonOptions);
     }
 
-    /// <summary>Add or replace a game entry; sets it active.</summary>
+    /// <summary>Add or replace a local-folder game entry; sets it active.</summary>
     public void RegisterAndActivate(string gameName, string sharedFolderPath)
     {
-        Games[gameName] = new GameEntry { SharedFolderPath = sharedFolderPath };
-        ActiveGame      = gameName;
+        Games[gameName] = new GameEntry
+        {
+            Provider         = "local",
+            SharedFolderPath = sharedFolderPath,
+        };
+        ActiveGame = gameName;
+    }
+
+    /// <summary>Add or replace a Dropbox game entry; sets it active.</summary>
+    public void RegisterAndActivateDropbox(string gameName, string token, string basePath)
+    {
+        Games[gameName] = new GameEntry
+        {
+            Provider        = "dropbox",
+            DropboxToken    = token,
+            DropboxBasePath = basePath,
+        };
+        ActiveGame = gameName;
     }
 }

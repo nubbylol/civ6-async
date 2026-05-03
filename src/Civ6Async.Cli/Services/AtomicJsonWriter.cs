@@ -13,20 +13,24 @@ internal static class AtomicJsonWriter
 {
     public static void Write<T>(string path, T value, JsonSerializerOptions options)
     {
-        var tmp = path + ".tmp";
+        var json = JsonSerializer.SerializeToUtf8Bytes(value, options);
+        WriteRaw(path, json);
+    }
 
+    public static void WriteRaw(string path, byte[] bytes)
+    {
+        var tmp = path + ".tmp";
         try
         {
             using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                JsonSerializer.Serialize(fs, value, options);
+                fs.Write(bytes, 0, bytes.Length);
                 fs.Flush(flushToDisk: true);
             }
             File.Move(tmp, path, overwrite: true);
         }
         catch
         {
-            // Best-effort cleanup of the .tmp orphan if the rename failed.
             try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
             throw;
         }

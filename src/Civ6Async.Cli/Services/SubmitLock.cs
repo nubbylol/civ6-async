@@ -1,13 +1,12 @@
 using System.Text.Json;
+using Civ6Async.Cli.Services.Storage;
 
 namespace Civ6Async.Cli.Services;
 
 /// <summary>
-/// Cooperative lock on the shared folder, preventing two players from
-/// submitting simultaneously and racing each other's manifest writes. Lock
-/// is a small JSON file (submit.lock) with the holder's identity. If a lock
-/// older than StaleAfter is found, callers can take it over (the previous
-/// holder probably crashed before releasing).
+/// Cooperative lock on the shared storage, preventing two players from
+/// submitting simultaneously. JSON file (submit.lock) at the storage root.
+/// Stale locks (older than StaleAfter) are taken over silently.
 /// </summary>
 internal static class SubmitLock
 {
@@ -21,27 +20,23 @@ internal static class SubmitLock
         public required string   Hostname  { get; set; }
     }
 
-    public static string LockPathIn(string sharedFolder) =>
-        Path.Combine(sharedFolder, FileName);
+    private static readonly JsonSerializerOptions JsonOpts = new() { WriteIndented = true };
 
-    public static Info? Peek(string sharedFolder) => TryRead(LockPathIn(sharedFolder));
+    public static Info? Peek(IGameStorage storage) => TryRead(storage);
 
-    public static bool TryAcquire(string sharedFolder, string player, out Info? blocking)
+    public static bool TryAcquire(IGameStorage storage, string player, out Info? blocking)
     {
-        var path = LockPathIn(sharedFolder);
-        var existing = TryRead(path);
+        var existing = TryRead(storage);
 
         if (existing is not null)
         {
             var ours  = string.Equals(existing.Player, player, StringComparison.OrdinalIgnoreCase);
             var stale = DateTime.UtcNow - existing.AcquiredAt > StaleAfter;
-
             if (!ours && !stale)
             {
                 blocking = existing;
                 return false;
             }
-            // Reaching here means ours, or stale — proceed to overwrite.
         }
 
         var info = new Info
@@ -50,24 +45,22 @@ internal static class SubmitLock
             AcquiredAt = DateTime.UtcNow,
             Hostname   = Environment.MachineName,
         };
-
-        AtomicJsonWriter.Write(path, info, new JsonSerializerOptions { WriteIndented = true });
+        storage.WriteBytes(FileName, JsonSerializer.SerializeToUtf8Bytes(info, JsonOpts));
         blocking = null;
         return true;
     }
 
-    public static void Release(string sharedFolder)
+    public static void Release(IGameStorage storage)
     {
-        var path = LockPathIn(sharedFolder);
-        try { if (File.Exists(path)) File.Delete(path); } catch { }
+        try { storage.Delete(FileName); } catch { }
     }
 
-    private static Info? TryRead(string path)
+    private static Info? TryRead(IGameStorage storage)
     {
-        if (!File.Exists(path)) return null;
+        if (!storage.Exists(FileName)) return null;
         try
         {
-            return JsonSerializer.Deserialize<Info>(File.ReadAllText(path));
+            return JsonSerializer.Deserialize<Info>(storage.ReadBytes(FileName));
         }
         catch
         {

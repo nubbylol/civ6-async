@@ -5,11 +5,6 @@ using Spectre.Console.Cli;
 
 namespace Civ6Async.Cli.Commands.Game;
 
-/// <summary>
-/// Manual fallback for the auto-submit path. Most users won't run this —
-/// 'game watch' submits in the background as soon as Civ writes a save.
-/// Useful for headless / CLI / non-watch scenarios.
-/// </summary>
 internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
 {
     public sealed class Settings : CommandSettings
@@ -29,13 +24,14 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
 
     protected override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        var (config, manifest, err) = GameContext.Resolve();
+        var (ctx, err) = GameContext.Resolve();
         if (err is not null) { AnsiConsole.MarkupLine(err); return 1; }
+        var (config, storage, manifest) = (ctx!.Config, ctx.Storage, ctx.Manifest);
 
         var savePath = ResolveSavePath(settings);
         if (savePath is null) return 1;
 
-        var result = SubmitFlow.Run(config!, manifest!, savePath, settings.Force);
+        var result = SubmitFlow.Run(config, storage, manifest, savePath, settings.Force);
         return result.Outcome == SubmitFlow.Outcome.Submitted ? 0 : 1;
     }
 
@@ -44,8 +40,6 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
         if (settings.SavePath is not null) return settings.SavePath;
         if (settings.Pick) return SavePicker.Pick(null);
 
-        // Auto-pick: most recent .Civ6Save not authored by us (skip
-        // civ6-async-* downloads, since those are what we'd just put there).
         var savesDir = PlatformPaths.AutoDetectHotseatSavesDir();
         if (savesDir is null || !Directory.Exists(savesDir))
         {
@@ -63,7 +57,7 @@ internal sealed class GameSubmitCommand : Command<GameSubmitCommand.Settings>
         {
             AnsiConsole.MarkupLine(
                 "[yellow]No recent saves found in[/] [grey]" + savesDir.EscapeMarkup() + "[/]. " +
-                "Make sure you've saved the game in Civ first, or pass [bold]--pick[/] to choose a different file.");
+                "Save the game in Civ first, or pass [bold]--pick[/] to choose a different file.");
             return null;
         }
 

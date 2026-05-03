@@ -8,17 +8,14 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
 {
     protected override int Execute(CommandContext context, EmptySettings settings, CancellationToken cancellationToken)
     {
-        var (config, manifest, err) = GameContext.Resolve();
+        var (ctx, err) = GameContext.Resolve();
         if (err is not null) { AnsiConsole.MarkupLine(err); return 1; }
+        var (config, storage, manifest) = (ctx!.Config, ctx.Storage, ctx.Manifest);
 
-        var iAmUp = string.Equals(manifest!.CurrentPlayer, config!.PlayerName,
+        var iAmUp = string.Equals(manifest.CurrentPlayer, config.PlayerName,
             StringComparison.OrdinalIgnoreCase);
 
-        // Note: we no longer refuse to download when it's not the user's turn.
-        // Downloading is read-only — the conflict detector still prevents bad
-        // submits — and people sometimes legitimately want a copy of the
-        // current state to review.
-        var plan = SaveDownloader.Inspect(config, manifest);
+        var plan = SaveDownloader.Inspect(storage, manifest);
         switch (plan.Status)
         {
             case SaveDownloader.Status.NoSaveYet:
@@ -36,8 +33,8 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
             case SaveDownloader.Status.SourceMissing:
                 AnsiConsole.MarkupLine(
                     $"[red]Manifest references[/] [grey]{manifest.LatestSaveFile!.EscapeMarkup()}[/] " +
-                    "[red]but the file isn't in the shared folder yet.[/] " +
-                    "Wait for cloud sync to finish, then try again.");
+                    "[red]but it isn't in the storage yet.[/] " +
+                    "Wait for sync, then try again.");
                 return 1;
 
             case SaveDownloader.Status.AlreadyHave:
@@ -53,7 +50,7 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
                 return 0;
 
             case SaveDownloader.Status.Stale:
-                SaveDownloader.Execute(plan);
+                SaveDownloader.Execute(storage, plan);
                 AnsiConsole.MarkupLine(iAmUp
                     ? $"[green]Your turn[/] (turn {manifest.CurrentTurn})."
                     : $"Game is on turn {manifest.CurrentTurn}, waiting on [yellow]{manifest.CurrentPlayer}[/].");

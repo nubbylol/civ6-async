@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Civ6Async.Cli.Services.Storage;
 
 namespace Civ6Async.Cli.Services;
 
@@ -41,20 +42,22 @@ internal sealed class GameManifest
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public static string ManifestPathIn(string sharedFolder) =>
-        Path.Combine(sharedFolder, FileName);
-
-    public static GameManifest? TryLoad(string sharedFolder)
+    public static GameManifest? TryLoad(IGameStorage storage)
     {
-        var path = ManifestPathIn(sharedFolder);
-        if (!File.Exists(path)) return null;
-        return JsonSerializer.Deserialize<GameManifest>(File.ReadAllText(path), JsonOptions);
+        if (!storage.Exists(FileName)) return null;
+        try
+        {
+            return JsonSerializer.Deserialize<GameManifest>(storage.ReadBytes(FileName), JsonOptions);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
-    public void Save(string sharedFolder)
+    public void Save(IGameStorage storage)
     {
-        Directory.CreateDirectory(sharedFolder);
-        AtomicJsonWriter.Write(ManifestPathIn(sharedFolder), this, JsonOptions);
+        storage.WriteBytes(FileName, JsonSerializer.SerializeToUtf8Bytes(this, JsonOptions));
     }
 
     /// <summary>Compute SHA-256 of a file, formatted as "sha256:<hex>".</summary>

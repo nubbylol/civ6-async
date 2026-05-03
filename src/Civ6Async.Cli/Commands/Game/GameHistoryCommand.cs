@@ -8,10 +8,11 @@ internal sealed class GameHistoryCommand : Command<EmptySettings>
 {
     protected override int Execute(CommandContext context, EmptySettings settings, CancellationToken cancellationToken)
     {
-        var (_, manifest, err) = GameContext.Resolve();
+        var (ctx, err) = GameContext.Resolve();
         if (err is not null) { AnsiConsole.MarkupLine(err); return 1; }
+        var manifest = ctx!.Manifest;
 
-        if (manifest!.History.Count == 0)
+        if (manifest.History.Count == 0)
         {
             AnsiConsole.MarkupLine("[grey]No turns submitted yet.[/]");
             return 0;
@@ -36,10 +37,10 @@ internal sealed class GameHistoryCommand : Command<EmptySettings>
     private static string FormatRelative(DateTime utc)
     {
         var delta = DateTime.UtcNow - utc;
-        if (delta.TotalSeconds < 60)  return "just now";
-        if (delta.TotalMinutes < 60)  return $"{(int)delta.TotalMinutes}m ago";
-        if (delta.TotalHours   < 24)  return $"{(int)delta.TotalHours}h ago";
-        if (delta.TotalDays    < 30)  return $"{(int)delta.TotalDays}d ago";
+        if (delta.TotalSeconds < 60) return "just now";
+        if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m ago";
+        if (delta.TotalHours   < 24) return $"{(int)delta.TotalHours}h ago";
+        if (delta.TotalDays    < 30) return $"{(int)delta.TotalDays}d ago";
         return utc.ToLocalTime().ToString("yyyy-MM-dd");
     }
 }

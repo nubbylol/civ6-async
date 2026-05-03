@@ -2,25 +2,15 @@ using Spectre.Console;
 
 namespace Civ6Async.Cli.Services;
 
-/// <summary>
-/// First-run setup for users who launch the helper before having any games
-/// configured. Walks them through the bare minimum: their player name +
-/// either creating or joining a game. Skipped silently for returning users.
-/// </summary>
 internal static class FirstRunWizard
 {
-    /// <summary>
-    /// Runs the wizard if no config exists yet. Returns the args to invoke
-    /// next (e.g. "game init …" or "game join …") or null if the user
-    /// declined / cancelled.
-    /// </summary>
     public static string[]? RunIfNeeded()
     {
         var config = LocalConfig.Load();
         if (config.PlayerName is not null && config.Games.Count > 0) return null;
 
         AnsiConsole.MarkupLine("[bold]Welcome to civ6-async[/]");
-        AnsiConsole.MarkupLine("[grey]Let's get you set up. Two questions, then you're done.[/]");
+        AnsiConsole.MarkupLine("[grey]Let's get you set up. A few questions, then you're done.[/]");
         AnsiConsole.WriteLine();
 
         var name = AnsiConsole.Prompt(
@@ -36,38 +26,75 @@ internal static class FirstRunWizard
 
         if (action.StartsWith("Skip", StringComparison.OrdinalIgnoreCase))
         {
-            // Save just the player name so they don't get prompted again.
             config.PlayerName = name;
             config.Save();
             AnsiConsole.MarkupLine($"[grey]Saved name '{name.EscapeMarkup()}'. Run[/] [bold]civ6-async game init[/] [grey]or[/] [bold]game join[/] [grey]when ready.[/]");
             return null;
         }
 
+        var provider = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Storage provider:")
+                .AddChoices(
+                    "Dropbox (direct API — recommended; needs an access token from the host)",
+                    "Local folder (Drive/Dropbox/OneDrive desktop sync — slower)"));
+
+        var isDropbox = provider.StartsWith("Dropbox", StringComparison.OrdinalIgnoreCase);
+
         if (action.StartsWith("Create", StringComparison.OrdinalIgnoreCase))
+            return BuildInitArgs(name, isDropbox);
+
+        return BuildJoinArgs(name, isDropbox);
+    }
+
+    private static string[] BuildInitArgs(string name, bool dropbox)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]A short label for this game (becomes a folder name).[/]");
+        AnsiConsole.MarkupLine("[grey]Example: PangaeaDuel[/]");
+        var gameName = AnsiConsole.Prompt(new TextPrompt<string>("Game name:"));
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Comma-separated turn order — include yourself.[/]");
+        AnsiConsole.MarkupLine("[grey]Example: arin,max,jess[/]");
+        var players = AnsiConsole.Prompt(new TextPrompt<string>("Players:"));
+
+        if (dropbox)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]A short label for this game. Becomes the subfolder name and shows up in 'civ6-async game status'.[/]");
-            AnsiConsole.MarkupLine("[grey]Example: PangaeaDuel[/]");
-            var gameName = AnsiConsole.Prompt(new TextPrompt<string>("Game name:"));
-
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]The cloud-synced folder you want games to live under (each game gets a subfolder).[/]");
-            AnsiConsole.MarkupLine($"[grey]Example: G:\\My Drive\\civ6-async  (Windows)  or  /home/<you>/Dropbox/civ6-async  (Linux)[/]");
-            var shared = AnsiConsole.Prompt(new TextPrompt<string>("Shared folder root:"));
-
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]Comma-separated turn order — include yourself.[/]");
-            AnsiConsole.MarkupLine("[grey]Example: arin,max,jess[/]");
-            var players = AnsiConsole.Prompt(new TextPrompt<string>("Players:"));
-
-            return new[] { "game", "init", gameName, "--shared", shared, "--players", players, "--me", name };
+            AnsiConsole.MarkupLine("[grey]Generate a Dropbox access token at[/] [bold]https://www.dropbox.com/developers/apps[/][grey] →[/]");
+            AnsiConsole.MarkupLine("[grey]  1. Create app → Scoped, App folder.[/]");
+            AnsiConsole.MarkupLine("[grey]  2. Permissions tab: tick files.content.read, files.content.write, files.metadata.read.[/]");
+            AnsiConsole.MarkupLine("[grey]  3. Settings tab: Generated access token → Generate.[/]");
+            var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:")
+                .Secret('*'));
+            return new[] { "game", "init", gameName, "--provider", "dropbox",
+                "--dropbox-token", token, "--players", players, "--me", name };
         }
 
-        // Join.
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]The full path to the game's folder — the one containing turn_state.json.[/]");
-        AnsiConsole.MarkupLine($"[grey]Example: G:\\My Drive\\civ6-async\\PangaeaDuel  (NOT just the parent civ6-async folder)[/]");
-        AnsiConsole.MarkupLine("[grey]The host can give you this exact path with [bold]civ6-async game invite[/].[/]");
+        AnsiConsole.MarkupLine("[grey]Local cloud-synced folder root (each game gets a subfolder).[/]");
+        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async  or  ~/Dropbox/civ6-async[/]");
+        var shared = AnsiConsole.Prompt(new TextPrompt<string>("Shared folder root:"));
+        return new[] { "game", "init", gameName, "--shared", shared, "--players", players, "--me", name };
+    }
+
+    private static string[] BuildJoinArgs(string name, bool dropbox)
+    {
+        if (dropbox)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[grey]Paste the access token the host sent you.[/]");
+            var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
+            AnsiConsole.MarkupLine("[grey]Paste the Dropbox folder path the host sent (e.g. /civ6-async/PangaeaDuel).[/]");
+            var folder = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox folder:"));
+            return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", folder, "--me", name };
+        }
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Full path to the game's folder — the one containing turn_state.json.[/]");
+        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async\\PangaeaDuel[/]");
+        AnsiConsole.MarkupLine("[grey]The host can give you the exact path with [bold]civ6-async game invite[/].[/]");
         var sharedJoin = AnsiConsole.Prompt(new TextPrompt<string>("Game folder:"));
         return new[] { "game", "join", "--shared", sharedJoin, "--me", name };
     }

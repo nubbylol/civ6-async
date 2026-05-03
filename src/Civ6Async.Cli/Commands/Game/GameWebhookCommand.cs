@@ -5,11 +5,6 @@ using Spectre.Console.Cli;
 
 namespace Civ6Async.Cli.Commands.Game;
 
-/// <summary>
-/// Set / clear the Discord webhook URL on the active game's manifest. Stored
-/// in turn_state.json so every player's helper picks it up via cloud sync;
-/// only the host (or whoever runs this) needs to know the URL.
-/// </summary>
 internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
 {
     public sealed class Settings : CommandSettings
@@ -21,16 +16,15 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
 
     protected override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
-        var (config, manifest, err) = GameContext.Resolve();
+        var (ctx, err) = GameContext.Resolve();
         if (err is not null) { AnsiConsole.MarkupLine(err); return 1; }
+        var (storage, manifest) = (ctx!.Storage, ctx.Manifest);
 
-        // No argument: show current state, then offer interactive set/clear.
-        // This is the path the interactive submenu hits.
         var url = settings.Url;
         if (url is null)
         {
             AnsiConsole.MarkupLine(
-                manifest!.DiscordWebhookUrl is null
+                manifest.DiscordWebhookUrl is null
                     ? "[grey]No webhook configured.[/]"
                     : $"[grey]Current webhook:[/] {manifest.DiscordWebhookUrl.EscapeMarkup()}");
 
@@ -39,7 +33,7 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
                     .Title("What do you want to do?")
                     .AddChoices(
                         "Set a new webhook URL",
-                        manifest!.DiscordWebhookUrl is null ? "Cancel" : "Clear the current webhook",
+                        manifest.DiscordWebhookUrl is null ? "Cancel" : "Clear the current webhook",
                         "Cancel"));
 
             if (action.StartsWith("Cancel", StringComparison.OrdinalIgnoreCase)) return 0;
@@ -56,8 +50,8 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
 
         if (url.Equals("clear", StringComparison.OrdinalIgnoreCase))
         {
-            manifest!.DiscordWebhookUrl = null;
-            manifest.Save(config!.ActiveGameEntry!.SharedFolderPath);
+            manifest.DiscordWebhookUrl = null;
+            manifest.Save(storage);
             AnsiConsole.MarkupLine("[green]Webhook cleared.[/]");
             return 0;
         }
@@ -70,10 +64,9 @@ internal sealed class GameWebhookCommand : Command<GameWebhookCommand.Settings>
             return 1;
         }
 
-        manifest!.DiscordWebhookUrl = url;
-        manifest.Save(config!.ActiveGameEntry!.SharedFolderPath);
+        manifest.DiscordWebhookUrl = url;
+        manifest.Save(storage);
 
-        // Smoke-test it so the host knows it works before relying on it.
         var ok = DiscordWebhook.PostAsync(
             url,
             $"**{manifest.GameName}** — civ6-async webhook attached.")

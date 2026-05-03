@@ -1,14 +1,8 @@
+using Civ6Async.Cli.Services.Storage;
 using Spectre.Console;
 
 namespace Civ6Async.Cli.Services;
 
-/// <summary>
-/// Shared submit pipeline used by both the explicit 'game submit' command
-/// and the 'game watch' auto-submit-on-save path. Returns a structured
-/// result so callers can decide how to react (continue watching vs exit
-/// the CLI). Conflict warnings are printed inline; this method assumes
-/// stdout already belongs to the user.
-/// </summary>
 internal static class SubmitFlow
 {
     public enum Outcome
@@ -22,7 +16,7 @@ internal static class SubmitFlow
 
     public sealed record Result(Outcome Outcome, GameManifest? UpdatedManifest, int? SubmittedTurn);
 
-    public static Result Run(LocalConfig config, GameManifest manifest, string savePath, bool force)
+    public static Result Run(LocalConfig config, IGameStorage storage, GameManifest manifest, string savePath, bool force)
     {
         if (!File.Exists(savePath))
         {
@@ -42,7 +36,7 @@ internal static class SubmitFlow
             AnsiConsole.MarkupLine("\n[yellow]--force given; submitting anyway.[/]");
         }
 
-        if (!SubmitLock.TryAcquire(config.ActiveGameEntry!.SharedFolderPath, config.PlayerName!, out var blocking))
+        if (!SubmitLock.TryAcquire(storage, config.PlayerName!, out var blocking))
         {
             AnsiConsole.MarkupLine(
                 $"[red]Another submit is already in progress.[/] " +
@@ -53,9 +47,6 @@ internal static class SubmitFlow
 
         try
         {
-            // Pull the actual game state from the most recent EventLogger
-            // save_complete event — source of truth even if the in-game mod
-            // auto-cycled through several players' turns.
             var saveEvent = LuaLogReader.FindLatest(new[] { "save_complete" });
 
             int    realTurn;
@@ -77,10 +68,11 @@ internal static class SubmitFlow
             }
 
             var dstName = $"{manifest.GameName}_T{realTurn:D3}_{config.PlayerName}.Civ6Save";
-            var dst     = Path.Combine(config.ActiveGameEntry.SharedFolderPath, dstName);
-            File.Copy(savePath, dst, overwrite: true);
+            storage.UploadFile(savePath, dstName);
 
-            var hash = GameManifest.HashFile(dst);
+            // Hash the local file we just uploaded — content is identical and
+            // we avoid an extra round-trip download.
+            var hash = GameManifest.HashFile(savePath);
             manifest.RecordSubmit(
                 submittingPlayer: config.PlayerName!,
                 submittedAtTurn:  realTurn,
@@ -88,12 +80,12 @@ internal static class SubmitFlow
                 hash:             hash,
                 nextTurn:         realTurn,
                 nextPlayer:       nextPlayer);
-            manifest.Save(config.ActiveGameEntry.SharedFolderPath);
+            manifest.Save(storage);
 
             AnsiConsole.MarkupLine($"[green]Submitted turn {realTurn} as[/] [grey]{dstName.EscapeMarkup()}[/]");
             AnsiConsole.MarkupLine($"Next up: [yellow]{manifest.CurrentPlayer}[/] (turn {manifest.CurrentTurn}).");
 
-            TrimOldSaves(config.ActiveGameEntry.SharedFolderPath, manifest, keepLast: 5);
+            TrimOldSaves(storage, manifest, keepLast: 5);
 
             if (!string.IsNullOrEmpty(manifest.DiscordWebhookUrl))
             {
@@ -114,7 +106,7 @@ internal static class SubmitFlow
         }
         finally
         {
-            SubmitLock.Release(config.ActiveGameEntry.SharedFolderPath);
+            SubmitLock.Release(storage);
         }
     }
 
@@ -133,7 +125,7 @@ internal static class SubmitFlow
         return match ?? manifestPlayers[0];
     }
 
-    private static void TrimOldSaves(string sharedFolder, GameManifest manifest, int keepLast)
+    private static void TrimOldSaves(IGameStorage storage, GameManifest manifest, int keepLast)
     {
         try
         {
@@ -145,13 +137,13 @@ internal static class SubmitFlow
             if (manifest.LatestSaveFile is not null)
                 referenced.Add(manifest.LatestSaveFile);
 
-            var dir = new DirectoryInfo(sharedFolder);
-            foreach (var file in dir.EnumerateFiles($"{manifest.GameName}_T*.Civ6Save"))
+            var prefix = $"{manifest.GameName}_T";
+            foreach (var entry in storage.ListFiles())
             {
-                if (!referenced.Contains(file.Name))
-                {
-                    try { file.Delete(); } catch { /* best-effort */ }
-                }
+                if (!entry.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!entry.Name.EndsWith(".Civ6Save", StringComparison.OrdinalIgnoreCase)) continue;
+                if (referenced.Contains(entry.Name)) continue;
+                try { storage.Delete(entry.Name); } catch { }
             }
         }
         catch { }
