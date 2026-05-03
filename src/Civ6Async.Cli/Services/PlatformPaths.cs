@@ -106,23 +106,21 @@ internal static class PlatformPaths
     }
 
     /// <summary>
-    /// Per-user app data root for civ6-async itself (not Civ). Used for the
-    /// helper's own config.json (player identity, active game pointer).
+    /// Where civ6-async writes its own state (config.json). Lives directly
+    /// next to the running executable so the helper is fully portable —
+    /// copy the binary anywhere (USB stick, sync-protected folder, custom
+    /// location) and its state travels with it. Falls back to the current
+    /// working directory if the executable path is somehow unavailable
+    /// (e.g. running via 'dotnet run' from source).
     /// </summary>
     public static string AppDataDir()
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        var exePath = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(exePath))
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "civ6-async");
+            var dir = Path.GetDirectoryName(exePath);
+            if (!string.IsNullOrEmpty(dir)) return dir;
         }
-        // XDG-compliant on Linux/macOS.
-        var xdgConfig = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        if (string.IsNullOrEmpty(xdgConfig))
-            xdgConfig = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".config");
-        return Path.Combine(xdgConfig, "civ6-async");
+        return Environment.CurrentDirectory;
     }
 }
