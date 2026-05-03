@@ -2,20 +2,26 @@ using Civ6Async.Cli.Services;
 using Civ6Async.Cli.Services.Storage;
 using Spectre.Console;
 using Spectre.Console.Cli;
+using Spectre.Console.Rendering;
 
 namespace Civ6Async.Cli.Commands.Game;
 
 /// <summary>
-/// Background watcher. Two trigger sources:
-///   - Local Civ saves folder via FileSystemWatcher → auto-submit on save.
-///   - Shared storage manifest via polling (every PollSeconds) → notify
-///     when it's now your turn. (FileSystemWatcher works for local-folder
-///     storage; for Dropbox we have to poll.)
-///   - Lua.log via FileSystemWatcher → divergence detection.
+/// Sync mode — the day-one user-facing command. Combines the old separate
+/// "whose turn?" + "watch" actions:
+///
+///   * Runs an immediate status check on entry. If it's your turn, drives
+///     the same download flow GameStatusCommand uses, then watches the
+///     local Civ saves folder for an end-of-turn save and auto-submits.
+///   * If it's not your turn, shows status and a visible countdown to the
+///     next manifest poll. While in this mode the only API traffic is one
+///     request every PollSeconds.
+///   * No polling at all while it IS your turn — the manifest can't move
+///     without YOUR submit, and submit is event-driven via FileSystemWatcher.
 /// </summary>
 internal sealed class GameWatchCommand : Command<EmptySettings>
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(20);
+    private const int PollSeconds = 60;
 
     protected override int Execute(CommandContext context, EmptySettings settings, CancellationToken cancellationToken)
     {
@@ -34,22 +40,31 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         var luaLogPath = PlatformPaths.AutoDetectLuaLogPath();
         var me         = config.PlayerName!;
 
-        AnsiConsole.MarkupLine($"[green]Watching[/] [bold]{manifest.GameName}[/] as [bold]{me}[/].");
-        AnsiConsole.MarkupLine($"  Local saves: [grey]{savesDir.EscapeMarkup()}[/]");
+        // Header (printed once, then we hand the bottom of the screen over to
+        // the live region for status + countdown).
+        AnsiConsole.MarkupLine($"[bold green]Sync[/] — game [bold]{manifest.GameName.EscapeMarkup()}[/], you are [bold]{me.EscapeMarkup()}[/].");
         AnsiConsole.MarkupLine($"  Storage:     [grey]{storage.Description.EscapeMarkup()}[/]");
-        AnsiConsole.MarkupLine($"  Lua.log:     [grey]{(luaLogPath ?? "(not found)").EscapeMarkup()}[/]");
+        AnsiConsole.MarkupLine($"  Local saves: [grey]{savesDir.EscapeMarkup()}[/]");
         AnsiConsole.MarkupLine("[grey]Press Ctrl+C to stop.[/]");
         AnsiConsole.WriteLine();
-        PrintInitialStatus(manifest, me);
+
+        // If it's our turn at startup, run the smart download flow up front.
+        // (Mirrors GameStatusCommand's behaviour so the user doesn't need a
+        // separate "whose turn?" action.)
+        if (string.Equals(manifest.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase))
+        {
+            HandleMyTurnAtStartup(storage, manifest);
+        }
 
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
 
-        var lastSeenTurn       = manifest.CurrentTurn;
-        var lastSeenPlayer     = manifest.CurrentPlayer;
-        var lastSavesScan      = DateTimeOffset.UtcNow;
-        var lastLogScan        = DateTimeOffset.UtcNow.AddDays(-1);
-        var announcedDivergeAt = -1;
+        var lastSeenTurn        = manifest.CurrentTurn;
+        var lastSeenPlayer      = manifest.CurrentPlayer;
+        var lastSavesEvent      = DateTimeOffset.UtcNow.AddSeconds(-2);
+        var lastLogEvent        = DateTimeOffset.UtcNow.AddDays(-1);
+        var announcedDivergeAt  = -1;
+        var lastPollAt          = DateTimeOffset.UtcNow;
 
         using var savesWatcher = new FileSystemWatcher(savesDir, "*.Civ6Save")
         {
@@ -71,35 +86,52 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         }
         using var _logWatcherDisposable = logWatcher;
 
-        // Poll the shared storage on a timer for "now your turn" detection.
-        // Works for both local-folder (cheap) and Dropbox (HTTPS round-trip).
-        var pollTimer = new Timer(_ => PollManifest(), null, PollInterval, PollInterval);
-        using var _timerDisposable = pollTimer;
+        // Live region: refreshes every second so the countdown ticks. Anything
+        // we MarkupLine elsewhere (events, submit results) prints ABOVE this
+        // region — Spectre handles that automatically.
+        AnsiConsole.Live(BuildStatusLine(lastSeenPlayer, lastSeenTurn, me, NextPollIn(lastPollAt)))
+            .AutoClear(false)
+            .Start(liveCtx =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    var iAmUp     = string.Equals(lastSeenPlayer, me, StringComparison.OrdinalIgnoreCase);
+                    var remaining = NextPollIn(lastPollAt);
 
-        try { stop.Token.WaitHandle.WaitOne(); }
-        catch (OperationCanceledException) { }
+                    // Time to poll? (only if NOT our turn — we never poll our own turn)
+                    if (!iAmUp && remaining <= 0)
+                    {
+                        DoPoll();
+                        lastPollAt = DateTimeOffset.UtcNow;
+                        remaining  = PollSeconds;
+                    }
+
+                    liveCtx.UpdateTarget(BuildStatusLine(lastSeenPlayer, lastSeenTurn, me, remaining));
+                    Thread.Sleep(1000);
+                }
+            });
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Watcher stopped.[/]");
+        AnsiConsole.MarkupLine("[grey]Sync stopped.[/]");
         return 0;
 
-        // ---------- handlers ----------
+        // ---------- handlers (closures share state) ----------
+
+        int NextPollIn(DateTimeOffset since) =>
+            Math.Max(0, PollSeconds - (int)(DateTimeOffset.UtcNow - since).TotalSeconds);
 
         void OnNewLocalSave(string path)
         {
             var now = DateTimeOffset.UtcNow;
-            if ((now - lastSavesScan).TotalSeconds < 1) return;
-            lastSavesScan = now;
+            if ((now - lastSavesEvent).TotalSeconds < 1) return;
+            lastSavesEvent = now;
 
             if (Path.GetFileName(path).StartsWith(SavePicker.DownloadedSavePrefix, StringComparison.OrdinalIgnoreCase))
                 return;
 
-            // Reload manifest fresh — might have advanced since startup.
             var current = GameManifest.TryLoad(storage);
             if (current is null) return;
-
-            if (!string.Equals(current.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase))
-                return;
+            if (!string.Equals(current.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase)) return;
 
             Thread.Sleep(250);  // grace pause; Civ may still be flushing.
 
@@ -112,14 +144,16 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
             {
                 lastSeenTurn   = current.CurrentTurn;
                 lastSeenPlayer = current.CurrentPlayer;
+                // We just handed over — start the next poll cycle now.
+                lastPollAt = DateTimeOffset.UtcNow;
             }
         }
 
         void OnLuaLogChanged()
         {
             var now = DateTimeOffset.UtcNow;
-            if ((now - lastLogScan).TotalSeconds < 1) return;
-            lastLogScan = now;
+            if ((now - lastLogEvent).TotalSeconds < 1) return;
+            lastLogEvent = now;
 
             var ev = LuaLogReader.FindLatest(new[] { "save_complete" }, luaLogPath);
             if (ev is null) return;
@@ -133,22 +167,14 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
             {
                 announcedDivergeAt = liveTurn;
                 AnsiConsole.MarkupLine(
-                    $"[yellow]►[/] In-game turn is [bold]{liveTurn}[/] but the shared manifest is on " +
+                    $"[yellow]►[/] In-game turn is [bold]{liveTurn}[/] but shared manifest is on " +
                     $"[bold]{current.CurrentTurn}[/]. Submit when ready.");
                 Beep();
             }
         }
 
-        void PollManifest()
+        void DoPoll()
         {
-            // No point hitting the API while it's our turn — the manifest can
-            // only change as the result of OUR submit, and that's caught by
-            // the local-save FileSystemWatcher, not by polling. We resume
-            // polling automatically once submit advances lastSeenPlayer to
-            // somebody else.
-            if (string.Equals(lastSeenPlayer, me, StringComparison.OrdinalIgnoreCase))
-                return;
-
             try
             {
                 var current = GameManifest.TryLoad(storage);
@@ -164,30 +190,78 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
                 if (string.Equals(current.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase))
                 {
                     AnsiConsole.MarkupLine(
-                        $"[green]►[/] [bold]Your turn[/] — turn {current.CurrentTurn}. " +
-                        "Run [bold]civ6-async game check[/] to download (or pick \"Whose turn?\" in the menu).");
+                        $"[green]►[/] [bold]Your turn[/] — turn {current.CurrentTurn}.");
                     Beep();
+                    HandleMyTurnAtStartup(storage, current);
                 }
                 else
                 {
                     AnsiConsole.MarkupLine(
-                        $"[grey]►[/] Now waiting on [yellow]{current.CurrentPlayer}[/] " +
+                        $"[grey]►[/] Now waiting on [yellow]{current.CurrentPlayer.EscapeMarkup()}[/] " +
                         $"(turn {current.CurrentTurn}).");
                 }
             }
             catch
             {
-                // Network blip / sync glitch — silent retry next interval.
+                // Silent — next tick retries.
             }
         }
     }
 
-    private static void PrintInitialStatus(GameManifest manifest, string me)
+    /// <summary>
+    /// On entry / on a freshly-detected my-turn handoff: download the latest
+    /// save into the local Civ saves folder if needed and tell the user
+    /// which file to load. Mirrors GameStatusCommand's smart behaviour.
+    /// </summary>
+    private static void HandleMyTurnAtStartup(IGameStorage storage, GameManifest manifest)
     {
-        var iAmUp = string.Equals(manifest.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase);
-        AnsiConsole.MarkupLine(iAmUp
-            ? $"[green]Your turn[/] (turn {manifest.CurrentTurn})."
-            : $"Waiting on [yellow]{manifest.CurrentPlayer}[/] (turn {manifest.CurrentTurn}).");
+        var plan = SaveDownloader.Inspect(storage, manifest);
+        switch (plan.Status)
+        {
+            case SaveDownloader.Status.NoSaveYet:
+                AnsiConsole.MarkupLine(
+                    "It's [green]your turn[/] — turn 1. Play your first turn in Civ from a fresh hotseat game; " +
+                    "Sync will auto-submit when you save.");
+                break;
+
+            case SaveDownloader.Status.SavesDirMissing:
+                AnsiConsole.MarkupLine(
+                    "It's [green]your turn[/], but Civ 6's saves folder wasn't found. Has Civ been launched here yet?");
+                break;
+
+            case SaveDownloader.Status.SourceMissing:
+                AnsiConsole.MarkupLine(
+                    "It's [green]your turn[/], but the latest save hasn't appeared in storage yet. " +
+                    "Sync will retry; check back in a moment.");
+                break;
+
+            case SaveDownloader.Status.AlreadyHave:
+                AnsiConsole.MarkupLine(
+                    $"It's [green]your turn[/]. Latest save is already on this machine as " +
+                    $"[bold]{plan.DestName!.EscapeMarkup()}[/]. Open it in Civ to play.");
+                break;
+
+            case SaveDownloader.Status.Stale:
+                SaveDownloader.Execute(storage, plan);
+                AnsiConsole.MarkupLine(
+                    $"It's [green]your turn[/] (turn {manifest.CurrentTurn}). " +
+                    $"Downloaded [bold]{plan.DestName!.EscapeMarkup()}[/] — open it in Civ to play.");
+                break;
+        }
+    }
+
+    private static IRenderable BuildStatusLine(string currentPlayer, int currentTurn, string me, int secondsToNextPoll)
+    {
+        var iAmUp = string.Equals(currentPlayer, me, StringComparison.OrdinalIgnoreCase);
+        if (iAmUp)
+        {
+            return new Markup(
+                $"[green]●[/] [bold]Your turn[/] (T{currentTurn}). Open the [bold]civ6-async-…[/] save in Civ. " +
+                "[grey]Sync will auto-submit when you save.[/]");
+        }
+        return new Markup(
+            $"[yellow]●[/] Waiting on [bold]{currentPlayer.EscapeMarkup()}[/] (T{currentTurn}). " +
+            $"[grey]Next check in {secondsToNextPoll}s…[/]");
     }
 
     private static void Beep()
