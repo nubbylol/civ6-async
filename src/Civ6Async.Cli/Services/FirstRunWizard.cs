@@ -158,23 +158,81 @@ internal static class FirstRunWizard
         return new[] { "game", "init", gameName, "--shared", shared, "--players", players, "--me", name };
     }
 
-    private static string[] BuildJoinArgs(string name, bool dropbox)
+    private static string[]? BuildJoinArgs(string name, bool dropbox)
     {
-        if (dropbox)
+        if (dropbox) return BuildDropboxJoinArgs(name);
+        return BuildLocalJoinArgs(name);
+    }
+
+    private static string[]? BuildDropboxJoinArgs(string name)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Paste the access token the host sent you.[/]");
+        var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
+
+        AnsiConsole.MarkupLine("[grey]Folder root to scan (default '/civ6-async').[/]");
+        var rootPath = AnsiConsole.Prompt(
+            new TextPrompt<string>("Dropbox root folder:").DefaultValue("/civ6-async"));
+
+        IReadOnlyList<GameDiscovery.Found>? games = null;
+        AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .Start($"Looking for games under {rootPath}…",
+                _ => games = GameDiscovery.Dropbox(token, rootPath));
+
+        if (games is null || games.Count == 0)
         {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]Paste the access token the host sent you.[/]");
-            var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
-            AnsiConsole.MarkupLine("[grey]Paste the Dropbox folder path the host sent (e.g. /civ6-async/PangaeaDuel).[/]");
-            var folder = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox folder:"));
+            AnsiConsole.MarkupLine(
+                "[yellow]No games found at that root.[/] Either the token's wrong, the folder path doesn't match what the host used, or the host hasn't created the game yet.");
+            // Fall back to manual entry.
+            AnsiConsole.MarkupLine("[grey]You can paste the full game-folder path the host sent you instead.[/]");
+            var folder = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox folder (full path):"));
             return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", folder, "--me", name };
         }
 
+        var picked = games.Count == 1
+            ? games[0]
+            : AnsiConsole.Prompt(
+                new SelectionPrompt<GameDiscovery.Found>()
+                    .Title("Pick a game to join:")
+                    .UseConverter(g => $"{g.Name}  [grey](T{g.Manifest.CurrentTurn}, waiting on {g.Manifest.CurrentPlayer})[/]")
+                    .AddChoices(games));
+
+        if (games.Count == 1)
+            AnsiConsole.MarkupLine($"[grey]Found one game:[/] [bold]{picked.Name.EscapeMarkup()}[/]");
+
+        return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", picked.FullPath, "--me", name };
+    }
+
+    private static string[]? BuildLocalJoinArgs(string name)
+    {
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Full path to the game's folder — the one containing turn_state.json.[/]");
-        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async\\PangaeaDuel[/]");
-        AnsiConsole.MarkupLine("[grey]The host can give you the exact path with [bold]civ6-async game invite[/].[/]");
-        var sharedJoin = AnsiConsole.Prompt(new TextPrompt<string>("Game folder:"));
-        return new[] { "game", "join", "--shared", sharedJoin, "--me", name };
+        AnsiConsole.MarkupLine("[grey]Cloud-synced folder root the host put games under.[/]");
+        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async  or  ~/Dropbox/civ6-async[/]");
+        var rootPath = AnsiConsole.Prompt(new TextPrompt<string>("Folder root:"));
+
+        var games = GameDiscovery.Local(rootPath);
+
+        if (games.Count == 0)
+        {
+            AnsiConsole.MarkupLine(
+                "[yellow]No games found at that root.[/] Either the path is wrong, the host's sync hasn't propagated yet, or the host hasn't created the game.");
+            AnsiConsole.MarkupLine("[grey]You can paste the full game-folder path instead (the one containing turn_state.json).[/]");
+            var folder = AnsiConsole.Prompt(new TextPrompt<string>("Game folder (full path):"));
+            return new[] { "game", "join", "--shared", folder, "--me", name };
+        }
+
+        var picked = games.Count == 1
+            ? games[0]
+            : AnsiConsole.Prompt(
+                new SelectionPrompt<GameDiscovery.Found>()
+                    .Title("Pick a game to join:")
+                    .UseConverter(g => $"{g.Name}  [grey](T{g.Manifest.CurrentTurn}, waiting on {g.Manifest.CurrentPlayer})[/]")
+                    .AddChoices(games));
+
+        if (games.Count == 1)
+            AnsiConsole.MarkupLine($"[grey]Found one game:[/] [bold]{picked.Name.EscapeMarkup()}[/]");
+
+        return new[] { "game", "join", "--shared", picked.FullPath, "--me", name };
     }
 }
