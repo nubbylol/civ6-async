@@ -14,21 +14,19 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
         var iAmUp = string.Equals(manifest!.CurrentPlayer, config!.PlayerName,
             StringComparison.OrdinalIgnoreCase);
 
-        if (!iAmUp)
-        {
-            AnsiConsole.MarkupLine(
-                $"It's [yellow]{manifest.CurrentPlayer}[/]'s turn (turn {manifest.CurrentTurn}). " +
-                "Nothing for you to do yet.");
-            return 0;
-        }
-
+        // Note: we no longer refuse to download when it's not the user's turn.
+        // Downloading is read-only — the conflict detector still prevents bad
+        // submits — and people sometimes legitimately want a copy of the
+        // current state to review.
         var plan = SaveDownloader.Inspect(config, manifest);
         switch (plan.Status)
         {
             case SaveDownloader.Status.NoSaveYet:
-                AnsiConsole.MarkupLine(
-                    $"It's [green]your turn[/] — turn 1. There's no shared save yet; play your first turn " +
-                    "in Civ from a fresh hotseat game, then run [bold]game submit[/].");
+                AnsiConsole.MarkupLine(iAmUp
+                    ? "It's [green]your turn[/] — turn 1. There's no shared save yet; play your first turn " +
+                      "in Civ from a fresh hotseat game, then run [bold]game submit[/]."
+                    : $"No shared save yet (game is on turn {manifest.CurrentTurn}, waiting on " +
+                      $"[yellow]{manifest.CurrentPlayer}[/]).");
                 return 0;
 
             case SaveDownloader.Status.SavesDirMissing:
@@ -43,23 +41,31 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
                 return 1;
 
             case SaveDownloader.Status.AlreadyHave:
-                AnsiConsole.MarkupLine($"[green]Your turn[/] (turn {manifest.CurrentTurn}).");
+                AnsiConsole.MarkupLine(iAmUp
+                    ? $"[green]Your turn[/] (turn {manifest.CurrentTurn})."
+                    : $"Game is on turn {manifest.CurrentTurn}, waiting on [yellow]{manifest.CurrentPlayer}[/].");
                 AnsiConsole.MarkupLine(
                     $"Latest save already downloaded → [grey]{plan.DestPath!.EscapeMarkup()}[/]");
-                AnsiConsole.MarkupLine(
-                    $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civilization VI to play.");
+                AnsiConsole.MarkupLine(iAmUp
+                    ? $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civilization VI to play."
+                    : $"You can open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civ to review state, but don't " +
+                      "submit — it's not your turn yet.");
                 return 0;
 
             case SaveDownloader.Status.Stale:
                 SaveDownloader.Execute(plan);
-                AnsiConsole.MarkupLine($"[green]Your turn[/] (turn {manifest.CurrentTurn}).");
+                AnsiConsole.MarkupLine(iAmUp
+                    ? $"[green]Your turn[/] (turn {manifest.CurrentTurn})."
+                    : $"Game is on turn {manifest.CurrentTurn}, waiting on [yellow]{manifest.CurrentPlayer}[/].");
                 AnsiConsole.MarkupLine(
                     $"Downloaded [grey]{manifest.LatestSaveFile!.EscapeMarkup()}[/] " +
                     $"→ [grey]{plan.DestPath!.EscapeMarkup()}[/]");
                 AnsiConsole.WriteLine();
-                AnsiConsole.MarkupLine(
-                    $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civilization VI, play your turn, save the " +
-                    "game, then run [bold]civ6-async game submit[/].");
+                AnsiConsole.MarkupLine(iAmUp
+                    ? $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civilization VI, play your turn, save the " +
+                      "game, then run [bold]civ6-async game submit[/]."
+                    : $"You can open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civ to review state, but don't " +
+                      "submit — it's not your turn yet.");
                 return 0;
         }
 
