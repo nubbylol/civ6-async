@@ -3,53 +3,68 @@
 Async-feeling Civilization VI for friends who can't all sit at the same machine. Two pieces:
 
 - **A mod** that strips the friction out of hotseat: skips click-to-begin-turn screens, auto-ends turns when no decision is needed, stops the moment you actually have something to do.
-- **A helper CLI** that coordinates a single hotseat save across players via any cloud-synced folder (Dropbox, Drive, OneDrive). One person plays their turn, helper uploads the save; the next player's helper sees it and pulls it down.
+- **A helper CLI** that coordinates a single hotseat save across players via any cloud-synced folder (Google Drive, Dropbox, OneDrive). One person plays their turn, helper uploads the save; the next player's helper sees it and pulls it down.
 
 Together they get you something close to Civ's Play-by-Cloud, but you control the storage and it works for friends who can't always be on at the same time.
 
 ## Install
 
-Download `civ6-async.exe` (Windows) or `civ6-async` (Linux) from `dist/cli/` in this repo, then run it.
+Download the binary for your OS from `dist/cli/` in this repo:
 
-**Windows**: double-click for an interactive menu, or in a terminal:
+| OS | File |
+|---|---|
+| Windows | `dist/cli/win-x64/civ6-async.exe` |
+| Linux / Steam Deck | `dist/cli/linux-x64/civ6-async` |
+
+**Windows**: double-click `civ6-async.exe`. The first time you run it, a setup wizard walks you through identity + first game.
+
+**Linux / Steam Deck** (Desktop Mode):
 ```
-civ6-async.exe install
+chmod +x civ6-async
+./civ6-async
 ```
 
-**Linux**: `chmod +x civ6-async && ./civ6-async install`
-
-`install` drops the mod into your Civ 6 Mods folder. Auto-detects Windows / native Linux Aspyr / Steam Proton / Steam Flatpak. Override with `--mods-dir <path>` if needed.
+The `install` step (or the wizard's first action) drops the mod into your Civ 6 Mods folder. Auto-detects Windows, native Linux Aspyr, Steam Proton (default Steam Deck path), Steam Flatpak. Override with `--mods-dir <path>` if it can't find yours.
 
 Then in Civ: **Additional Content → Mods → tick civ6-async**.
 
 ## Playing a shared game
 
-The first time you launch the helper interactively (double-click), it walks you through setup. Or do it from the terminal:
+After the first-run wizard, the typical loop is:
 
-**Host creates the game**:
-```
-civ6-async game init MyGame --shared "C:\Users\arin\Dropbox\civ6-async" --players "arin,max" --me arin
-```
-
-**Other players join** (host pastes a one-liner from `civ6-async game invite` in Discord):
-```
-civ6-async game join --shared "C:\Users\max\Dropbox\civ6-async\MyGame"
-```
-
-**Each turn**:
-- `civ6-async game check` → if it's your turn, downloads the latest save into your Civ saves folder
+- `civ6-async game status` — whose turn is it?
+- `civ6-async game check` — if it's yours, downloads the latest save into your Civ saves folder
 - Play in Civ, save the game
-- `civ6-async game submit` → uploads, advances the manifest, optionally pings Discord
+- `civ6-async game submit` — uploads to the shared folder, advances the manifest
 
-`civ6-async game watch` runs in the foreground and rings the terminal bell whenever it's your turn or you've just saved a game in Civ. Set up a Discord webhook with `game webhook <url>` to ping the channel on every submit.
+Or from the interactive menu (just run `civ6-async` with no args).
 
-`civ6-async --help` (or `game --help`) lists every command.
+**Host creates a game**:
+```
+civ6-async game init MyGame \
+  --shared "G:\My Drive\civ6-async" \
+  --players "arin,max,jess" \
+  --me arin
+```
+
+**Other players join** (host pastes a one-liner from `civ6-async game invite` into Discord):
+```
+civ6-async game join --shared "G:\My Drive\civ6-async\MyGame"
+```
+
+Note: `init` takes the *parent* shared folder; `join` takes the *specific game's* folder. The `invite` command prints the right path for joiners.
+
+## Notifications
+
+`civ6-async game watch` runs alongside Civ and rings the terminal bell when it's your turn or when you've saved a game ready to submit.
+
+For phone-friendly pings, set a Discord webhook on the game (`game webhook` from the menu, or `game webhook <url>` from the CLI). Every submit posts to that channel — works on mobile via Discord's notifications.
 
 ## Notes
 
 - Works in single-player and hotseat. Won't load in ranked online multiplayer (Civ 6 anti-cheat blocks unsigned mods there).
 - Helper supports multiple concurrent games (`game list` / `game switch`).
-- Conflict detection on submit refuses bad submits (wrong player, identical to last, stale local save). Override with `--force` if you know what you're doing.
+- Submit refuses bad submits by default (wrong player, identical to last save, stale local file). `--force` overrides if needed.
 - Conflicts with any other mod that replaces `PlayerChange.lua` or `ActionPanel.lua`.
 
 ## Building from source
@@ -60,3 +75,5 @@ Requires .NET 8 SDK.
 cd src
 ./build.ps1            # produces dist/cli/{win-x64,linux-x64}/civ6-async[.exe]
 ```
+
+`civ6-async --help` lists every command.
