@@ -16,6 +16,12 @@
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
     <PublishTrimmed>false</PublishTrimmed>
+    <!--
+      Bundle native deps (e.g. e_sqlite3 from Microsoft.Data.Sqlite) into
+      the main binary so we ship a single file per OS. The runtime
+      extracts them to a temp dir on first run.
+    -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>
