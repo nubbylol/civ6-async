@@ -2,7 +2,6 @@ using Civ6Async.Cli.Services;
 using Civ6Async.Cli.Services.Storage;
 using Spectre.Console;
 using Spectre.Console.Cli;
-using Spectre.Console.Rendering;
 
 namespace Civ6Async.Cli.Commands.Game;
 
@@ -45,16 +44,19 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         AnsiConsole.MarkupLine($"[bold green]Sync[/] — game [bold]{manifest.GameName.EscapeMarkup()}[/], you are [bold]{me.EscapeMarkup()}[/].");
         AnsiConsole.MarkupLine($"  Storage:     [grey]{storage.Description.EscapeMarkup()}[/]");
         AnsiConsole.MarkupLine($"  Local saves: [grey]{savesDir.EscapeMarkup()}[/]");
-        AnsiConsole.MarkupLine("[grey]Press Ctrl+C to stop.[/]");
+        AnsiConsole.MarkupLine($"[grey]Polling every {PollSeconds}s while waiting on other players. Press Ctrl+C to stop.[/]");
         AnsiConsole.WriteLine();
 
         // If it's our turn at startup, run the smart download flow up front.
-        // (Mirrors GameStatusCommand's behaviour so the user doesn't need a
-        // separate "whose turn?" action.)
         if (string.Equals(manifest.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase))
         {
             HandleMyTurnAtStartup(storage, manifest);
         }
+        else
+        {
+            AnsiConsole.MarkupLine($"Waiting on [yellow]{manifest.CurrentPlayer.EscapeMarkup()}[/] (turn {manifest.CurrentTurn}).");
+        }
+        AnsiConsole.WriteLine();
 
         using var stop = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
@@ -64,7 +66,7 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         var lastSavesEvent      = DateTimeOffset.UtcNow.AddSeconds(-2);
         var lastLogEvent        = DateTimeOffset.UtcNow.AddDays(-1);
         var announcedDivergeAt  = -1;
-        var lastPollAt          = DateTimeOffset.UtcNow;
+        var nextPollAt          = DateTimeOffset.UtcNow.AddSeconds(PollSeconds);
 
         using var savesWatcher = new FileSystemWatcher(savesDir, "*.Civ6Save")
         {
@@ -86,39 +88,27 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         }
         using var _logWatcherDisposable = logWatcher;
 
-        // Live region: refreshes every second so the countdown ticks. Anything
-        // we MarkupLine elsewhere (events, submit results) prints ABOVE this
-        // region — Spectre handles that automatically.
-        AnsiConsole.Live(BuildStatusLine(lastSeenPlayer, lastSeenTurn, me, NextPollIn(lastPollAt)))
-            .AutoClear(false)
-            .Start(liveCtx =>
+        // Plain sleep loop. Status messages print on state-change events
+        // (poll detects handoff, file watcher fires, etc.). No per-second
+        // redraw — that approach didn't work cleanly on all Windows console
+        // hosts and produced visual spam.
+        while (!stop.IsCancellationRequested)
+        {
+            Thread.Sleep(1000);
+
+            var iAmUp = string.Equals(lastSeenPlayer, me, StringComparison.OrdinalIgnoreCase);
+            if (!iAmUp && DateTimeOffset.UtcNow >= nextPollAt)
             {
-                while (!stop.IsCancellationRequested)
-                {
-                    var iAmUp     = string.Equals(lastSeenPlayer, me, StringComparison.OrdinalIgnoreCase);
-                    var remaining = NextPollIn(lastPollAt);
-
-                    // Time to poll? (only if NOT our turn — we never poll our own turn)
-                    if (!iAmUp && remaining <= 0)
-                    {
-                        DoPoll();
-                        lastPollAt = DateTimeOffset.UtcNow;
-                        remaining  = PollSeconds;
-                    }
-
-                    liveCtx.UpdateTarget(BuildStatusLine(lastSeenPlayer, lastSeenTurn, me, remaining));
-                    Thread.Sleep(1000);
-                }
-            });
+                DoPoll();
+                nextPollAt = DateTimeOffset.UtcNow.AddSeconds(PollSeconds);
+            }
+        }
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]Sync stopped.[/]");
         return 0;
 
         // ---------- handlers (closures share state) ----------
-
-        int NextPollIn(DateTimeOffset since) =>
-            Math.Max(0, PollSeconds - (int)(DateTimeOffset.UtcNow - since).TotalSeconds);
 
         void OnNewLocalSave(string path)
         {
@@ -144,8 +134,8 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
             {
                 lastSeenTurn   = current.CurrentTurn;
                 lastSeenPlayer = current.CurrentPlayer;
-                // We just handed over — start the next poll cycle now.
-                lastPollAt = DateTimeOffset.UtcNow;
+                // We just handed over — restart the poll cycle now.
+                nextPollAt = DateTimeOffset.UtcNow.AddSeconds(PollSeconds);
             }
         }
 
@@ -248,20 +238,6 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
                     $"Downloaded [bold]{plan.DestName!.EscapeMarkup()}[/] — open it in Civ to play.");
                 break;
         }
-    }
-
-    private static IRenderable BuildStatusLine(string currentPlayer, int currentTurn, string me, int secondsToNextPoll)
-    {
-        var iAmUp = string.Equals(currentPlayer, me, StringComparison.OrdinalIgnoreCase);
-        if (iAmUp)
-        {
-            return new Markup(
-                $"[green]●[/] [bold]Your turn[/] (T{currentTurn}). Open the [bold]civ6-async-…[/] save in Civ. " +
-                "[grey]Sync will auto-submit when you save.[/]");
-        }
-        return new Markup(
-            $"[yellow]●[/] Waiting on [bold]{currentPlayer.EscapeMarkup()}[/] (T{currentTurn}). " +
-            $"[grey]Next check in {secondsToNextPoll}s…[/]");
     }
 
     private static void Beep()
