@@ -11,11 +11,13 @@ namespace Civ6Async.Cli.Commands.Game;
 /// <summary>
 /// Produces a single zip containing:
 ///   - the running civ6-async binary
-///   - a stripped-down config.json (active game's storage entry, no playerName)
+///   - a copy of the host's config.json with PlayerName cleared
 ///
 /// Send the zip to friends; they unzip, double-click the binary, the
 /// first-run wizard's fast-path picks up the pre-configured game and
-/// only asks them which player they are.
+/// only asks them which player they are. Everything else (token,
+/// folder paths, multiple games, active-game pointer) is preserved
+/// so the invitee doesn't have to re-paste anything.
 /// </summary>
 internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
 {
@@ -26,10 +28,12 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
         public string? Output { get; init; }
     }
 
+    // Match LocalConfig's serializer options exactly so the produced
+    // config.json round-trips through LocalConfig.Load on the invitee's side.
     private static readonly JsonSerializerOptions JsonOpts = new()
     {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        WriteIndented           = true,
+        DefaultIgnoreCondition  = JsonIgnoreCondition.WhenWritingNull,
     };
 
     protected override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
@@ -37,7 +41,6 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
         var (ctx, err) = GameContext.Resolve();
         if (err is not null) { AnsiConsole.MarkupLine(err); return 1; }
         var (config, manifest) = (ctx!.Config, ctx.Manifest);
-        var entry = config.ActiveGameEntry!;
 
         var exePath = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exePath) || !File.Exists(exePath))
@@ -57,14 +60,18 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
             File.Delete(output);
         }
 
-        // Stripped config: only the active game's entry, marked active, no playerName.
-        var inviteConfig = new InviteConfig
+        // Re-serialize the host's actual config — same shape Load expects —
+        // with PlayerName cleared. Keeps every game, the active-game pointer,
+        // the Dropbox token, and folder paths intact so the invitee is one
+        // prompt away from playing.
+        var inviteConfig = new LocalConfig
         {
-            ActiveGame = manifest.GameName,
-            Games = new Dictionary<string, LocalConfig.GameEntry>
-            {
-                [manifest.GameName] = entry,
-            },
+            PlayerName         = null,
+            DropboxToken       = config.DropboxToken,
+            ActiveGame         = config.ActiveGame,
+            Games              = config.Games,
+            DefaultDropboxRoot = config.DefaultDropboxRoot,
+            DefaultSharedRoot  = config.DefaultSharedRoot,
         };
         var inviteJson = JsonSerializer.SerializeToUtf8Bytes(inviteConfig, JsonOpts);
 
@@ -87,7 +94,7 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
         AnsiConsole.MarkupLine("[grey]Send this zip to invitees. They unzip, double-click the binary, and the[/]");
         AnsiConsole.MarkupLine("[grey]wizard will skip straight to \"which player are you?\".[/]");
 
-        if (entry.Provider == "dropbox")
+        if (config.Games.Values.Any(g => g.Provider == "dropbox"))
         {
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine(
@@ -95,17 +102,5 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
                 "who gets the zip can read/write the game folder. Don't share it publicly.");
         }
         return 0;
-    }
-
-    /// <summary>
-    /// Subset of LocalConfig — drop PlayerName so each invitee gets a fresh
-    /// "which player are you?" prompt.
-    /// </summary>
-    private sealed class InviteConfig
-    {
-        [JsonPropertyName("activeGame")]
-        public string? ActiveGame { get; set; }
-        [JsonPropertyName("games")]
-        public Dictionary<string, LocalConfig.GameEntry> Games { get; set; } = new();
     }
 }

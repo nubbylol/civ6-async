@@ -32,7 +32,7 @@ internal static class GameContext
         IGameStorage storage;
         try
         {
-            storage = StorageFactory.From(entry);
+            storage = StorageFactory.From(config, entry);
         }
         catch (Exception ex)
         {

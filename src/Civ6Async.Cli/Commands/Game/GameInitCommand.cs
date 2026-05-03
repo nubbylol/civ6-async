@@ -72,14 +72,22 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
 
         if (settings.Provider.Equals("dropbox", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrEmpty(settings.DropboxToken))
+            // Token: prefer the explicit --dropbox-token; otherwise fall back
+            // to the per-machine saved token from a previous game.
+            var existingConfig = LocalConfig.Load();
+            var token = !string.IsNullOrEmpty(settings.DropboxToken)
+                ? settings.DropboxToken
+                : existingConfig.DropboxToken;
+            if (string.IsNullOrEmpty(token))
             {
-                AnsiConsole.MarkupLine("[red]--dropbox-token is required for --provider dropbox.[/]");
+                AnsiConsole.MarkupLine(
+                    "[red]No Dropbox token available.[/] Pass [bold]--dropbox-token[/] " +
+                    "or save one via [bold]civ6-async defaults[/].");
                 return 1;
             }
 
             var basePath = settings.DropboxFolder.TrimEnd('/') + "/" + settings.Name;
-            var dropbox  = new DropboxStorage(settings.DropboxToken, basePath);
+            var dropbox  = new DropboxStorage(token, basePath);
 
             string? verify = null;
             AnsiConsole.Status()
@@ -101,7 +109,7 @@ internal sealed class GameInitCommand : Command<GameInitCommand.Settings>
 
             storage       = dropbox;
             providerLabel = $"Dropbox: {basePath}";
-            register      = c => c.RegisterAndActivateDropbox(settings.Name, settings.DropboxToken!, basePath);
+            register      = c => { c.DropboxToken = token; c.RegisterAndActivateDropbox(settings.Name, basePath); };
         }
         else
         {

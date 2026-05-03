@@ -29,12 +29,20 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
 
     protected override int Execute(CommandContext context, Settings settings, CancellationToken cancellationToken)
     {
+        var existingConfig = LocalConfig.Load();
         IGameStorage storage;
         Action<LocalConfig, string> register;
 
-        if (!string.IsNullOrEmpty(settings.DropboxToken) && !string.IsNullOrEmpty(settings.DropboxFolder))
+        // Token: explicit --dropbox-token wins; otherwise the per-machine
+        // saved token. --dropbox-folder is still required to know which
+        // game to join.
+        var token = !string.IsNullOrEmpty(settings.DropboxToken)
+            ? settings.DropboxToken
+            : existingConfig.DropboxToken;
+
+        if (!string.IsNullOrEmpty(token) && !string.IsNullOrEmpty(settings.DropboxFolder))
         {
-            var dropbox = new DropboxStorage(settings.DropboxToken, settings.DropboxFolder);
+            var dropbox = new DropboxStorage(token, settings.DropboxFolder);
 
             string? verify = null;
             AnsiConsole.Status()
@@ -46,7 +54,11 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
                 return 1;
             }
             storage  = dropbox;
-            register = (cfg, gameName) => cfg.RegisterAndActivateDropbox(gameName, settings.DropboxToken, settings.DropboxFolder);
+            register = (cfg, gameName) =>
+            {
+                cfg.DropboxToken = token;
+                cfg.RegisterAndActivateDropbox(gameName, settings.DropboxFolder);
+            };
         }
         else if (!string.IsNullOrEmpty(settings.SharedFolder))
         {
@@ -55,7 +67,7 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
         }
         else
         {
-            AnsiConsole.MarkupLine("[red]Pass either --shared <path> (local) or --dropbox-token + --dropbox-folder.[/]");
+            AnsiConsole.MarkupLine("[red]Pass either --shared <path> (local) or --dropbox-folder (token taken from saved defaults if not given).[/]");
             return 1;
         }
 

@@ -33,6 +33,13 @@ internal interface IGameStorage
 
     /// <summary>List files at the top of <paramref name="relFolder"/>. Empty for none.</summary>
     IReadOnlyList<StorageEntry> ListFiles(string relFolder = "");
+
+    /// <summary>
+    /// Permanently delete the entire game's storage location — every file
+    /// the game wrote and the containing folder itself. Used by
+    /// <c>game delete</c>; there is no undo.
+    /// </summary>
+    void Wipe();
 }
 
 internal sealed record StorageEntry(string Name, long Size, DateTime ModifiedUtc);

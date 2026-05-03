@@ -52,4 +52,9 @@ internal sealed class LocalFolderStorage : IGameStorage
             .Select(f => new StorageEntry(f.Name, f.Length, f.LastWriteTimeUtc))
             .ToList();
     }
+
+    public void Wipe()
+    {
+        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+    }
 }

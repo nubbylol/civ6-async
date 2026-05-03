@@ -26,7 +26,7 @@ internal sealed class GameInviteCommand : Command<EmptySettings>
         if (entry.Provider == "dropbox")
         {
             AnsiConsole.MarkupLine(
-                $"  [bold]civ6-async game join --dropbox-token \"{entry.DropboxToken}\" " +
+                $"  [bold]civ6-async game join --dropbox-token \"{config.DropboxToken}\" " +
                 $"--dropbox-folder \"{entry.DropboxBasePath}\"[/]");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine(

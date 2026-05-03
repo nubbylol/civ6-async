@@ -38,7 +38,7 @@ internal static class FirstRunWizard
         IGameStorage storage;
         try
         {
-            storage = StorageFactory.From(config.ActiveGameEntry!);
+            storage = StorageFactory.From(config, config.ActiveGameEntry!);
         }
         catch (Exception ex)
         {
@@ -88,26 +88,63 @@ internal static class FirstRunWizard
 
     private static string[]? RunFullWizard(LocalConfig config)
     {
-        AnsiConsole.MarkupLine("[bold]Welcome to civ6-async[/]");
-        AnsiConsole.MarkupLine("[grey]Let's get you set up. A few questions, then you're done.[/]");
+        var hasName = !string.IsNullOrWhiteSpace(config.PlayerName);
+
+        AnsiConsole.MarkupLine(hasName ? "[bold]civ6-async[/]" : "[bold]Welcome to civ6-async[/]");
+        AnsiConsole.MarkupLine(hasName
+            ? $"[grey]You're set up as[/] [bold]{config.PlayerName!.EscapeMarkup()}[/][grey], but you're not in a game right now.[/]"
+            : "[grey]Let's get you set up. A few questions, then you're done.[/]");
         AnsiConsole.WriteLine();
 
-        var name = AnsiConsole.Prompt(
-            new TextPrompt<string>("Your player name (e.g. arin, max):")
-                .Validate(s => string.IsNullOrWhiteSpace(s)
-                    ? ValidationResult.Error("[red]Pick a name.[/]")
-                    : ValidationResult.Success()));
+        var name = hasName
+            ? config.PlayerName!
+            : AnsiConsole.Prompt(
+                new TextPrompt<string>("Your player name (e.g. arin, max):")
+                    .Validate(s => string.IsNullOrWhiteSpace(s)
+                        ? ValidationResult.Error("[red]Pick a name.[/]")
+                        : ValidationResult.Success()));
 
+        return RunCreateOrJoinFlow(name, persistNameOnSkip: !hasName);
+    }
+
+    /// <summary>
+    /// Re-entry point for the menu when the user has just left or deleted
+    /// their last game. They already have a saved player name, so skip
+    /// straight to the create/join branch — no name prompt, no Skip option.
+    /// Returns args for game init / game join, or null if cancelled.
+    /// </summary>
+    public static string[]? RunCreateOrJoin(string playerName)
+    {
+        AnsiConsole.MarkupLine("[bold]Set up a game[/]");
+        AnsiConsole.MarkupLine($"[grey]Hi[/] [bold]{playerName.EscapeMarkup()}[/][grey] — you're not in a game right now. Let's fix that.[/]");
+        AnsiConsole.WriteLine();
+        return RunCreateOrJoinFlow(playerName, persistNameOnSkip: false);
+    }
+
+    /// <summary>
+    /// Shared body of the wizard: pick Create vs. Join (vs. Skip on first
+    /// run, vs. Cancel afterwards), pick provider, dispatch to the right
+    /// args-builder. <paramref name="persistNameOnSkip"/> is true only on
+    /// the very first run, when picking Skip means "save the name and
+    /// drop me at the menu so I can do it later".
+    /// </summary>
+    private static string[]? RunCreateOrJoinFlow(string name, bool persistNameOnSkip)
+    {
+        var bailLabel = persistNameOnSkip ? "Skip — I'll do this later" : "Cancel";
         var action = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
-                .Title("Are you starting a new game, or joining one someone else created?")
-                .AddChoices("Create a new game", "Join an existing game", "Skip — I'll do this later"));
+                .Title("Create a new game, or join one someone else created?")
+                .AddChoices("Create a new game", "Join an existing game", bailLabel));
 
-        if (action.StartsWith("Skip", StringComparison.OrdinalIgnoreCase))
+        if (action == bailLabel)
         {
-            config.PlayerName = name;
-            config.Save();
-            AnsiConsole.MarkupLine($"[grey]Saved name '{name.EscapeMarkup()}'. Run[/] [bold]civ6-async game init[/] [grey]or[/] [bold]game join[/] [grey]when ready.[/]");
+            if (persistNameOnSkip)
+            {
+                var c = LocalConfig.Load();
+                c.PlayerName = name;
+                c.Save();
+                AnsiConsole.MarkupLine($"[grey]Saved name '{name.EscapeMarkup()}'. Run[/] [bold]civ6-async game init[/] [grey]or[/] [bold]game join[/] [grey]when ready.[/]");
+            }
             return null;
         }
 
@@ -128,6 +165,8 @@ internal static class FirstRunWizard
 
     private static string[] BuildInitArgs(string name, bool dropbox)
     {
+        var savedDefaults = LocalConfig.Load();
+
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[grey]A short label for this game (becomes a folder name).[/]");
         AnsiConsole.MarkupLine("[grey]Example: PangaeaDuel[/]");
@@ -140,22 +179,52 @@ internal static class FirstRunWizard
 
         if (dropbox)
         {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[grey]Generate a Dropbox access token at[/] [bold]https://www.dropbox.com/developers/apps[/][grey] →[/]");
-            AnsiConsole.MarkupLine("[grey]  1. Create app → Scoped, App folder.[/]");
-            AnsiConsole.MarkupLine("[grey]  2. Permissions tab: tick files.content.read, files.content.write, files.metadata.read.[/]");
-            AnsiConsole.MarkupLine("[grey]  3. Settings tab: Generated access token → Generate.[/]");
-            var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:")
-                .Secret('*'));
-            return new[] { "game", "init", gameName, "--provider", "dropbox",
-                "--dropbox-token", token, "--players", players, "--me", name };
+            var token = PromptOrReuseDropboxToken(savedDefaults.DropboxToken);
+
+            var rootPath = PromptDropboxRoot(savedDefaults.DefaultDropboxRoot);
+            PersistDefaultDropboxRoot(rootPath);
+
+            var args = new List<string> {
+                "game", "init", gameName, "--provider", "dropbox",
+                "--dropbox-token", token, "--players", players, "--me", name,
+            };
+            if (!string.IsNullOrEmpty(rootPath))
+            {
+                args.Add("--dropbox-folder");
+                args.Add(rootPath);
+            }
+            return args.ToArray();
         }
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Local cloud-synced folder root (each game gets a subfolder).[/]");
-        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async  or  ~/Dropbox/civ6-async[/]");
-        var shared = AnsiConsole.Prompt(new TextPrompt<string>("Shared folder root:"));
+        var shared = PromptLocalRoot(savedDefaults.DefaultSharedRoot);
+        PersistDefaultSharedRoot(shared);
         return new[] { "game", "init", gameName, "--shared", shared, "--players", players, "--me", name };
+    }
+
+    /// <summary>
+    /// Re-entry point for the menu's "Join another game" action. Reuses the
+    /// wizard's discover/pick/name-resolve flow, skipping the first-run
+    /// name + create/join/skip prompts. Returns the args to dispatch
+    /// against <c>game join</c>, or null if the user backed out.
+    /// </summary>
+    public static string[]? RunInteractiveJoin(string playerName)
+    {
+        AnsiConsole.MarkupLine("[bold]Join another game[/]");
+        AnsiConsole.WriteLine();
+
+        var provider = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("Storage provider:")
+                .AddChoices(
+                    "Dropbox (direct API — recommended; needs an access token from the host)",
+                    "Local folder (Drive/Dropbox/OneDrive desktop sync — slower)",
+                    "Cancel"));
+
+        if (provider.StartsWith("Cancel", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var isDropbox = provider.StartsWith("Dropbox", StringComparison.OrdinalIgnoreCase);
+        return BuildJoinArgs(playerName, isDropbox);
     }
 
     private static string[]? BuildJoinArgs(string name, bool dropbox)
@@ -166,15 +235,11 @@ internal static class FirstRunWizard
 
     private static string[]? BuildDropboxJoinArgs(string name)
     {
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Paste the access token the host sent you.[/]");
-        var token = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
+        var savedConfig = LocalConfig.Load();
+        var token = PromptOrReuseDropboxToken(savedConfig.DropboxToken);
 
-        AnsiConsole.MarkupLine("[grey]Folder root to scan. Press Enter for the App folder root (default).[/]");
-        var rootPath = AnsiConsole.Prompt(
-            new TextPrompt<string>("Dropbox root folder:")
-                .AllowEmpty()
-                .DefaultValue(""));
+        var rootPath = PromptDropboxRoot(savedConfig.DefaultDropboxRoot);
+        PersistDefaultDropboxRoot(rootPath);
 
         var rootLabel = string.IsNullOrEmpty(rootPath) ? "App folder root" : rootPath;
         IReadOnlyList<GameDiscovery.Found>? games = null;
@@ -210,10 +275,8 @@ internal static class FirstRunWizard
 
     private static string[]? BuildLocalJoinArgs(string name)
     {
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Cloud-synced folder root the host put games under.[/]");
-        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async  or  ~/Dropbox/civ6-async[/]");
-        var rootPath = AnsiConsole.Prompt(new TextPrompt<string>("Folder root:"));
+        var rootPath = PromptLocalRoot(LocalConfig.Load().DefaultSharedRoot);
+        PersistDefaultSharedRoot(rootPath);
 
         var games = GameDiscovery.Local(rootPath);
 
@@ -258,5 +321,70 @@ internal static class FirstRunWizard
             new SelectionPrompt<string>()
                 .Title("Which player are you?")
                 .AddChoices(manifest.Players));
+    }
+
+    /// <summary>
+    /// If a per-machine Dropbox token is already saved, reuse it silently.
+    /// Otherwise prompt the user for one (with the create-an-app
+    /// instructions, which only matter for first-time setup). Tokens are
+    /// per-machine — once you've supplied one, you never have to type it
+    /// again for additional games.
+    /// </summary>
+    private static string PromptOrReuseDropboxToken(string? savedToken)
+    {
+        if (!string.IsNullOrEmpty(savedToken))
+        {
+            AnsiConsole.MarkupLine("[grey]Using your saved Dropbox access token.[/]");
+            return savedToken;
+        }
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Generate a Dropbox access token at[/] [bold]https://www.dropbox.com/developers/apps[/][grey] →[/]");
+        AnsiConsole.MarkupLine("[grey]  1. Create app → Scoped, App folder.[/]");
+        AnsiConsole.MarkupLine("[grey]  2. Permissions tab: tick files.content.read, files.content.write, files.metadata.read.[/]");
+        AnsiConsole.MarkupLine("[grey]  3. Settings tab: Generated access token → Generate.[/]");
+        return AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
+    }
+
+    // ---- shared root prompts (used by init + join, default to user's saved value) ----
+
+    private static string PromptDropboxRoot(string? savedDefault)
+    {
+        var defaultValue = savedDefault ?? "";
+        var hint = string.IsNullOrEmpty(defaultValue)
+            ? "[grey]Folder root inside your Dropbox app folder. Press Enter for the App folder root.[/]"
+            : $"[grey]Folder root inside your Dropbox app folder. Press Enter to use [bold]{defaultValue.EscapeMarkup()}[/][grey] (your saved default).[/]";
+        AnsiConsole.MarkupLine(hint);
+        return AnsiConsole.Prompt(
+            new TextPrompt<string>("Dropbox root folder:")
+                .AllowEmpty()
+                .DefaultValue(defaultValue));
+    }
+
+    private static string PromptLocalRoot(string? savedDefault)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]Cloud-synced folder root (each game is a subfolder of this).[/]");
+        AnsiConsole.MarkupLine("[grey]Example: G:\\My Drive\\civ6-async  or  ~/Dropbox/civ6-async[/]");
+        var prompt = new TextPrompt<string>("Folder root:");
+        if (!string.IsNullOrEmpty(savedDefault)) prompt.DefaultValue(savedDefault);
+        return AnsiConsole.Prompt(prompt);
+    }
+
+    private static void PersistDefaultDropboxRoot(string root)
+    {
+        var c = LocalConfig.Load();
+        if (string.Equals(c.DefaultDropboxRoot ?? "", root ?? "", StringComparison.Ordinal)) return;
+        c.DefaultDropboxRoot = root;
+        c.Save();
+    }
+
+    private static void PersistDefaultSharedRoot(string root)
+    {
+        if (string.IsNullOrWhiteSpace(root)) return;
+        var c = LocalConfig.Load();
+        if (string.Equals(c.DefaultSharedRoot, root, StringComparison.Ordinal)) return;
+        c.DefaultSharedRoot = root;
+        c.Save();
     }
 }

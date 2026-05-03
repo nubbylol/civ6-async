@@ -6,7 +6,7 @@ internal static class StorageFactory
     /// Materialize the storage backend that backs a configured game. Caller
     /// owns the returned instance — Dispose when done if it's IDisposable.
     /// </summary>
-    public static IGameStorage From(LocalConfig.GameEntry entry)
+    public static IGameStorage From(LocalConfig config, LocalConfig.GameEntry entry)
     {
         // Default / legacy: local folder.
         if (entry.Provider is null or "local")
@@ -18,9 +18,12 @@ internal static class StorageFactory
 
         if (entry.Provider == "dropbox")
         {
-            if (string.IsNullOrEmpty(entry.DropboxToken) || string.IsNullOrEmpty(entry.DropboxBasePath))
-                throw new InvalidOperationException("Dropbox game entry missing token or base path.");
-            return new DropboxStorage(entry.DropboxToken, entry.DropboxBasePath);
+            if (string.IsNullOrEmpty(config.DropboxToken))
+                throw new InvalidOperationException(
+                    "No Dropbox access token configured. Run 'civ6-async defaults' or re-join the game.");
+            if (string.IsNullOrEmpty(entry.DropboxBasePath))
+                throw new InvalidOperationException("Dropbox game entry missing base path.");
+            return new DropboxStorage(config.DropboxToken, entry.DropboxBasePath);
         }
 
         throw new InvalidOperationException($"Unknown storage provider: {entry.Provider}");

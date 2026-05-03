@@ -23,8 +23,8 @@ internal sealed class GameListCommand : Command<EmptySettings>
             string storageDesc, status;
             try
             {
-                using var storage = StorageFactory.From(entry) as IDisposable;
-                var s = StorageFactory.From(entry);
+                using var storage = StorageFactory.From(config, entry) as IDisposable;
+                var s = StorageFactory.From(config, entry);
                 storageDesc = s.Description;
                 var manifest = GameManifest.TryLoad(s);
                 status = manifest is null

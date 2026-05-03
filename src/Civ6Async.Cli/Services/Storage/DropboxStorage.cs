@@ -125,6 +125,18 @@ internal sealed class DropboxStorage : IGameStorage, IDisposable
         }
     }
 
+    public void Wipe()
+    {
+        try
+        {
+            _client.Files.DeleteV2Async(_basePath).GetAwaiter().GetResult();
+        }
+        catch (ApiException<DeleteError>)
+        {
+            // Folder already gone — fine.
+        }
+    }
+
     /// <summary>One-shot connectivity check. Returns null on success or the error message.</summary>
     public string? VerifyAccess()
     {
