@@ -16,9 +16,7 @@ app.Configure(config =>
     config.AddCommand<UninstallCommand>("uninstall")
         .WithDescription("Remove the civ6-async mod from Civilization VI's Mods folder.");
     config.AddCommand<StatusCommand>("status")
-        .WithDescription("Show whether the mod is installed and where.");
-    config.AddCommand<HealthCommand>("health")
-        .WithDescription("Run a full set of checks against the install.");
+        .WithDescription("Check the mod install: Civ folder, writable, present, file integrity.");
 
     // Shared-game coordination commands.
     config.AddBranch("game", branch =>
@@ -98,7 +96,6 @@ static async Task<int> RunInteractiveAsync(CommandApp app)
                     new MenuChoice("Mod: install / update",      new[] { "install" }),
                     new MenuChoice("Mod: uninstall",             new[] { "uninstall" }),
                     new MenuChoice("Mod: status",                new[] { "status" }),
-                    new MenuChoice("Mod: health check",          new[] { "health" }),
                     new MenuChoice("Exit",                       null)));
 
         if (choice.Args is null) return 0;
