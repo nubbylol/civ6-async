@@ -38,6 +38,8 @@ app.Configure(config =>
             .WithDescription("Scan a folder for shared games (turn_state.json).");
         branch.AddCommand<GameInviteCommand>("invite")
             .WithDescription("Print a one-line join command for the active game (paste in Discord).");
+        branch.AddCommand<GamePackCommand>("pack")
+            .WithDescription("Bundle the binary + stripped config.json into a zip you can send to friends.");
         branch.AddCommand<GameStatusCommand>("status")
             .WithDescription("Show whose turn it is in the active game.");
         branch.AddCommand<GameHistoryCommand>("history")
@@ -96,6 +98,7 @@ static async Task<int> RunInteractiveAsync(CommandApp app)
         new MenuChoice("Switch active game",           new[] { "game", "switch"   }),
         new MenuChoice("Game history",                 new[] { "game", "history"  }),
         new MenuChoice("Invite (paste link)",          new[] { "game", "invite"   }),
+        new MenuChoice("Pack invite zip for friends",  new[] { "game", "pack"     }),
         new MenuChoice("Discord webhook (set/clear)",  new[] { "game", "webhook"  }),
         new MenuChoice("Repair / validate state",      new[] { "game", "repair"   }),
         new MenuChoice("Leave a game",                 new[] { "game", "leave"    }),

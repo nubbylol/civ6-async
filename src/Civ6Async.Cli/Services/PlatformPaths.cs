@@ -3,115 +3,111 @@ using System.Runtime.InteropServices;
 namespace Civ6Async.Cli.Services;
 
 /// <summary>
-/// Locates Civilization VI's user-mods directory across Windows / Linux /
-/// macOS, including the Proton path that Linux users running the Windows
-/// build via Steam-Play end up with.
+/// Locates Civilization VI's per-user data across Windows / Linux / macOS,
+/// including Steam-Play / Proton variants for Linux users running the
+/// Windows build.
+///
+/// Civ uses TWO user folders per profile on Windows:
+///   - "My Games" — user-installed mods, save files
+///   - "AppData/Local" — engine logs, caches, Mods.sqlite (mod database)
+///
+/// Linux Aspyr collapses both into a single ~/.local/share/Aspyr/... folder.
+/// Proton replicates the Windows two-folder split *inside* the Proton prefix
+/// (drive_c/users/steamuser/Documents and drive_c/users/steamuser/AppData).
 /// </summary>
 internal static class PlatformPaths
 {
-    public static IEnumerable<string> CandidateModsDirs()
+    /// <summary>
+    /// One candidate Civ profile = a pair of (myGames root, appDataLocal root).
+    /// Either path may be the same on platforms that don't split.
+    /// </summary>
+    public sealed record CivProfile(string MyGamesRoot, string AppDataLocalRoot);
+
+    public static IEnumerable<CivProfile> Candidates()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            // SpecialFolder.MyDocuments resolves OneDrive redirection.
-            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            yield return Path.Combine(docs, "My Games", "Sid Meier's Civilization VI", "Mods");
+            var docs  = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            yield return new CivProfile(
+                Path.Combine(docs, "My Games", "Sid Meier's Civilization VI"),
+                Path.Combine(local, "Firaxis Games", "Sid Meier's Civilization VI"));
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-            // Native Aspyr Linux port.
-            yield return Path.Combine(home, ".local", "share", "Aspyr", "Sid Meier's Civilization VI", "Mods");
+            // Native Aspyr port — one folder for everything.
+            var aspyr = Path.Combine(home, ".local", "share", "Aspyr", "Sid Meier's Civilization VI");
+            yield return new CivProfile(aspyr, aspyr);
 
-            // Proton (Windows build via Steam Play).
-            yield return Path.Combine(home, ".steam", "steam", "steamapps", "compatdata", "289070",
-                "pfx", "drive_c", "users", "steamuser", "Documents",
-                "My Games", "Sid Meier's Civilization VI", "Mods");
-
-            // Flatpak Steam Proton.
-            yield return Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", "data",
-                "Steam", "steamapps", "compatdata", "289070",
-                "pfx", "drive_c", "users", "steamuser", "Documents",
-                "My Games", "Sid Meier's Civilization VI", "Mods");
+            // Proton variants — Windows-style split inside the prefix.
+            foreach (var prefix in ProtonPrefixCandidates(home))
+            {
+                var users = Path.Combine(prefix, "drive_c", "users", "steamuser");
+                yield return new CivProfile(
+                    Path.Combine(users, "Documents", "My Games", "Sid Meier's Civilization VI"),
+                    Path.Combine(users, "AppData",   "Local",    "Firaxis Games", "Sid Meier's Civilization VI"));
+            }
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            yield return Path.Combine(home, "Library", "Application Support",
-                "Sid Meier's Civilization VI", "Mods");
+            var lib  = Path.Combine(home, "Library", "Application Support", "Sid Meier's Civilization VI");
+            yield return new CivProfile(lib, lib);
         }
     }
 
-    /// <summary>
-    /// Returns the first candidate Mods directory whose parent (the Civ user
-    /// folder) actually exists, or null if none do.
-    /// </summary>
-    public static string? AutoDetectModsDir()
+    private static IEnumerable<string> ProtonPrefixCandidates(string home)
     {
-        foreach (var dir in CandidateModsDirs())
+        // Standard Steam install (the Deck default).
+        yield return Path.Combine(home, ".steam", "steam", "steamapps", "compatdata", "289070", "pfx");
+        // Older Steam layout / some distros.
+        yield return Path.Combine(home, ".local", "share", "Steam", "steamapps", "compatdata", "289070", "pfx");
+        // Even older.
+        yield return Path.Combine(home, ".steam", "root", "steamapps", "compatdata", "289070", "pfx");
+        // Flatpak Steam.
+        yield return Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", "data",
+            "Steam", "steamapps", "compatdata", "289070", "pfx");
+    }
+
+    private static CivProfile? FirstExisting()
+    {
+        foreach (var p in Candidates())
         {
-            var civUserDir = Path.GetDirectoryName(dir);
-            if (civUserDir is not null && Directory.Exists(civUserDir))
-                return dir;
+            if (Directory.Exists(p.MyGamesRoot)) return p;
+            if (Directory.Exists(p.AppDataLocalRoot)) return p;
         }
         return null;
     }
 
-    /// <summary>
-    /// Hotseat saves live alongside the Mods directory under the Civ user
-    /// folder. Same per-OS heuristics, just one folder over.
-    /// </summary>
-    public static IEnumerable<string> CandidateHotseatSavesDirs() =>
-        CandidateModsDirs().Select(modsDir =>
-            Path.Combine(Path.GetDirectoryName(modsDir)!, "Saves", "Hotseat"));
+    // ---- Public detector helpers ----
 
-    public static string? AutoDetectHotseatSavesDir()
-    {
-        foreach (var dir in CandidateHotseatSavesDirs())
-        {
-            var civUserDir = Path.GetDirectoryName(Path.GetDirectoryName(dir));
-            if (civUserDir is not null && Directory.Exists(civUserDir))
-                return dir;
-        }
-        return null;
-    }
+    public static string? AutoDetectModsDir() =>
+        FirstExisting() is { } p ? Path.Combine(p.MyGamesRoot, "Mods") : null;
 
-    /// <summary>
-    /// Civ 6's Lua.log lives under the per-user "Logs" folder (sibling of
-    /// Mods / Saves). Same per-OS detection as the Mods folder; we just
-    /// step out of "Mods" and into "Logs/Lua.log".
-    /// </summary>
+    public static string? AutoDetectHotseatSavesDir() =>
+        FirstExisting() is { } p ? Path.Combine(p.MyGamesRoot, "Saves", "Hotseat") : null;
+
     public static string? AutoDetectLuaLogPath()
     {
-        var modsDir = AutoDetectModsDir();
-        if (modsDir is null) return null;
-        var civUser = Path.GetDirectoryName(modsDir);
-        if (civUser is null) return null;
-        // On Windows the Logs/ folder lives in %LOCALAPPDATA%\Firaxis Games\...,
-        // not in My Games\... where the user-installed Mods do. Try both.
-        var candidates = new[]
-        {
-            Path.Combine(civUser, "Logs", "Lua.log"),
-            // %LOCALAPPDATA% override on Windows.
-            RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                ? Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "Firaxis Games", "Sid Meier's Civilization VI", "Logs", "Lua.log")
-                : null,
-        };
-        foreach (var c in candidates)
-            if (c is not null && File.Exists(c)) return c;
-        return null;
+        var p = FirstExisting();
+        if (p is null) return null;
+        var path = Path.Combine(p.AppDataLocalRoot, "Logs", "Lua.log");
+        return File.Exists(path) ? path : null;
+    }
+
+    public static string? AutoDetectModsDbPath()
+    {
+        var p = FirstExisting();
+        if (p is null) return null;
+        var path = Path.Combine(p.AppDataLocalRoot, "Mods.sqlite");
+        return File.Exists(path) ? path : null;
     }
 
     /// <summary>
     /// Where civ6-async writes its own state (config.json). Lives directly
-    /// next to the running executable so the helper is fully portable —
-    /// copy the binary anywhere (USB stick, sync-protected folder, custom
-    /// location) and its state travels with it. Falls back to the current
-    /// working directory if the executable path is somehow unavailable
-    /// (e.g. running via 'dotnet run' from source).
+    /// next to the running executable so the helper is fully portable.
     /// </summary>
     public static string AppDataDir()
     {

@@ -70,8 +70,8 @@ internal sealed class InstallCommand : Command<InstallCommand.Settings>
         {
             AnsiConsole.MarkupLine("[red]Could not auto-detect Civilization VI's user folder.[/]");
             AnsiConsole.MarkupLine("Pass [yellow]--mods-dir <path>[/] explicitly. Tried:");
-            foreach (var c in PlatformPaths.CandidateModsDirs())
-                AnsiConsole.MarkupLine($"  • [grey]{c.EscapeMarkup()}[/]");
+            foreach (var p in PlatformPaths.Candidates())
+                AnsiConsole.MarkupLine($"  • [grey]{Path.Combine(p.MyGamesRoot, "Mods").EscapeMarkup()}[/]");
             return null;
         }
 
