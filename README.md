@@ -8,29 +8,22 @@ Async-feeling Civilization VI for friends who can't all sit at the same machine.
 
 Together they get you something close to Civ's Play-by-Cloud, but you control the storage and it works for friends who can't always be on at the same time.
 
-## TL;DR — get playing in 5 minutes
+## TL;DR — joining a game
 
-**Everyone needs**: Civilization VI, a shared cloud folder (Google Drive easiest — anyone can sync to it on Windows / Mac / Steam Deck via rclone), and `civ6-async` from `dist/cli/`.
+**You need**: Civilization VI, the shared cloud folder access your host invited you to (Google Drive / Dropbox / OneDrive / etc.), and `civ6-async` from `dist/cli/` in this repo (`.exe` for Windows, no-extension binary for Linux / Steam Deck).
 
-**The host** (one person, once per game):
+**One-time setup**:
 
 1. Run `civ6-async` (double-click on Windows; `chmod +x civ6-async && ./civ6-async` on Linux).
-2. First-run wizard: pick a player name → **Create a new game** → enter a game name → enter your shared-folder root (e.g. `G:\My Drive\civ6-async`) → list every player including yourself.
-3. Run **More options → Invite (paste link)**, copy the line, paste it in your Discord channel.
-4. Optional: **More options → Discord webhook (set/clear)** to get pinged in Discord on every submit.
-5. In Civ: **Additional Content → Mods → tick civ6-async**, start a hotseat game with one civ per player, save it once.
+2. First-run wizard: pick a player name → **Join an existing game** → paste the folder path the host sent you (e.g. `G:\My Drive\civ6-async\PangaeaDuel`).
+3. In Civ: **Additional Content → Mods → tick civ6-async** → confirm.
 
-**Everyone else**:
+**Every turn**:
 
-1. Run `civ6-async` → pick your player name → **Join an existing game** → paste the path the host sent you.
-2. In Civ: tick the **civ6-async** mod the same way.
-
-**Every turn** (anyone):
-
-1. Open `civ6-async`, pick **Whose turn?** to check.
-2. If it's yours, pick **Download latest save** (drops it into your Civ saves folder).
-3. Open Civ → Load Game → pick the file beginning `civ6-async-…`. Play your turn, save the game.
-4. Back in `civ6-async`, pick **Submit my turn**, choose the save you just made.
+1. Run `civ6-async` → **Whose turn?** to see whether it's yours.
+2. If it is, pick **Download latest save** (drops it into your Civ saves folder).
+3. Open Civ → Load Game → pick the file starting with `civ6-async-…`. Play your turn, save the game.
+4. Back in `civ6-async`, pick **Submit my turn** and choose the save you just made.
 
 That's it.
 
