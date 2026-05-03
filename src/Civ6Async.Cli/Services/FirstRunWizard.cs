@@ -45,15 +45,30 @@ internal static class FirstRunWizard
 
         if (action.StartsWith("Create", StringComparison.OrdinalIgnoreCase))
         {
-            var gameName = AnsiConsole.Prompt(new TextPrompt<string>("Game name (folder name + manifest title):"));
-            var shared   = AnsiConsole.Prompt(new TextPrompt<string>("Shared folder root (your Dropbox/Drive folder):"));
-            var players  = AnsiConsole.Prompt(new TextPrompt<string>("Players, comma-separated (turn order, including you):"));
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[grey]A short label for this game. Becomes the subfolder name and shows up in 'civ6-async game status'.[/]");
+            AnsiConsole.MarkupLine("[grey]Example: PangaeaDuel[/]");
+            var gameName = AnsiConsole.Prompt(new TextPrompt<string>("Game name:"));
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[grey]The cloud-synced folder you want games to live under (each game gets a subfolder).[/]");
+            AnsiConsole.MarkupLine($"[grey]Example: G:\\My Drive\\civ6-async  (Windows)  or  /home/<you>/Dropbox/civ6-async  (Linux)[/]");
+            var shared = AnsiConsole.Prompt(new TextPrompt<string>("Shared folder root:"));
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("[grey]Comma-separated turn order — include yourself.[/]");
+            AnsiConsole.MarkupLine("[grey]Example: arin,max,jess[/]");
+            var players = AnsiConsole.Prompt(new TextPrompt<string>("Players:"));
 
             return new[] { "game", "init", gameName, "--shared", shared, "--players", players, "--me", name };
         }
 
         // Join.
-        var sharedJoin = AnsiConsole.Prompt(new TextPrompt<string>("Shared folder for the game (must contain turn_state.json):"));
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]The full path to the game's folder — the one containing turn_state.json.[/]");
+        AnsiConsole.MarkupLine($"[grey]Example: G:\\My Drive\\civ6-async\\PangaeaDuel  (NOT just the parent civ6-async folder)[/]");
+        AnsiConsole.MarkupLine("[grey]The host can give you this exact path with [bold]civ6-async game invite[/].[/]");
+        var sharedJoin = AnsiConsole.Prompt(new TextPrompt<string>("Game folder:"));
         return new[] { "game", "join", "--shared", sharedJoin, "--me", name };
     }
 }
