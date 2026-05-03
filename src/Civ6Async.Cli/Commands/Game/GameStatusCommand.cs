@@ -4,6 +4,12 @@ using Spectre.Console.Cli;
 
 namespace Civ6Async.Cli.Commands.Game;
 
+/// <summary>
+/// Status now does the smart thing: shows whose turn it is, and if it's
+/// yours and you don't have the latest save downloaded yet, prompts to
+/// download right there. The user shouldn't have to know about a separate
+/// "check" step.
+/// </summary>
 internal sealed class GameStatusCommand : Command<EmptySettings>
 {
     protected override int Execute(CommandContext context, EmptySettings settings, CancellationToken cancellationToken)
@@ -27,9 +33,57 @@ internal sealed class GameStatusCommand : Command<EmptySettings>
 
         AnsiConsole.Write(grid);
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine(iAmUp
-            ? "It's [green]your turn[/]. Run [bold]civ6-async game check[/] to download the latest save."
-            : $"Waiting on [yellow]{manifest.CurrentPlayer}[/].");
+
+        if (!iAmUp)
+        {
+            AnsiConsole.MarkupLine($"Waiting on [yellow]{manifest.CurrentPlayer}[/].");
+            return 0;
+        }
+
+        // It's our turn. Figure out whether we have the right save locally
+        // and offer to download if not.
+        var plan = SaveDownloader.Inspect(config, manifest);
+        switch (plan.Status)
+        {
+            case SaveDownloader.Status.NoSaveYet:
+                AnsiConsole.MarkupLine(
+                    "It's [green]your turn[/] — turn 1. There's no shared save yet; play your first turn " +
+                    "in Civ from a fresh hotseat game, then submit.");
+                return 0;
+
+            case SaveDownloader.Status.SavesDirMissing:
+                AnsiConsole.MarkupLine(
+                    "It's [green]your turn[/], but Civ 6's saves folder wasn't found. " +
+                    "Has Civ been launched on this machine yet?");
+                return 1;
+
+            case SaveDownloader.Status.SourceMissing:
+                AnsiConsole.MarkupLine(
+                    $"It's [green]your turn[/], but the latest save " +
+                    $"[grey]{manifest.LatestSaveFile!.EscapeMarkup()}[/] hasn't synced from the cloud yet. " +
+                    "Wait for sync and run again.");
+                return 1;
+
+            case SaveDownloader.Status.AlreadyHave:
+                AnsiConsole.MarkupLine(
+                    $"It's [green]your turn[/]. Latest save already downloaded as " +
+                    $"[bold]{plan.DestName!.EscapeMarkup()}[/]. Open it in Civ to play.");
+                return 0;
+
+            case SaveDownloader.Status.Stale:
+                AnsiConsole.MarkupLine(
+                    $"It's [green]your turn[/] (turn {manifest.CurrentTurn}). The latest save isn't on this machine yet.");
+                if (AnsiConsole.Confirm("Download it now?"))
+                {
+                    SaveDownloader.Execute(plan);
+                    AnsiConsole.MarkupLine(
+                        $"[green]Downloaded[/] → [grey]{plan.DestPath!.EscapeMarkup()}[/]");
+                    AnsiConsole.MarkupLine(
+                        $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civ, play, save, then submit.");
+                }
+                return 0;
+        }
+
         return 0;
     }
 

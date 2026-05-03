@@ -80,16 +80,16 @@ static async Task<int> RunInteractiveAsync(CommandApp app)
 
     var topMenu = new[]
     {
-        new MenuChoice("Whose turn?",          new[] { "game", "status" }),
-        new MenuChoice("Download latest save", new[] { "game", "check"  }),
-        new MenuChoice("Submit my turn",       new[] { "game", "submit" }),
-        new MenuChoice("Watch (background)",   new[] { "game", "watch"  }),
-        new MenuChoice("More options…",        MenuMarkers.Submenu),
-        new MenuChoice("Exit",                 null),
+        new MenuChoice("Whose turn? (downloads if it's yours)", new[] { "game", "status" }),
+        new MenuChoice("Submit my turn",                        new[] { "game", "submit" }),
+        new MenuChoice("Watch (background)",                    new[] { "game", "watch"  }),
+        new MenuChoice("More options…",                         MenuMarkers.Submenu),
+        new MenuChoice("Exit",                                  null),
     };
 
     var subMenu = new[]
     {
+        new MenuChoice("Force re-download latest save",new[] { "game", "check"    }),
         new MenuChoice("List configured games",        new[] { "game", "list"     }),
         new MenuChoice("Switch active game",           new[] { "game", "switch"   }),
         new MenuChoice("Game history",                 new[] { "game", "history"  }),

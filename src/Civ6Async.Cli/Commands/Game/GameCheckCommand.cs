@@ -22,44 +22,47 @@ internal sealed class GameCheckCommand : Command<EmptySettings>
             return 0;
         }
 
-        if (manifest.LatestSaveFile is null)
+        var plan = SaveDownloader.Inspect(config, manifest);
+        switch (plan.Status)
         {
-            AnsiConsole.MarkupLine(
-                $"It's [green]your turn[/] — turn 1. There's no shared save yet; play your first turn " +
-                "in Civ from a fresh hotseat game, then run [bold]game submit[/].");
-            return 0;
+            case SaveDownloader.Status.NoSaveYet:
+                AnsiConsole.MarkupLine(
+                    $"It's [green]your turn[/] — turn 1. There's no shared save yet; play your first turn " +
+                    "in Civ from a fresh hotseat game, then run [bold]game submit[/].");
+                return 0;
+
+            case SaveDownloader.Status.SavesDirMissing:
+                AnsiConsole.MarkupLine("[red]Civ 6 hotseat saves folder not found.[/] Has Civ been launched on this machine yet?");
+                return 1;
+
+            case SaveDownloader.Status.SourceMissing:
+                AnsiConsole.MarkupLine(
+                    $"[red]Manifest references[/] [grey]{manifest.LatestSaveFile!.EscapeMarkup()}[/] " +
+                    "[red]but the file isn't in the shared folder yet.[/] " +
+                    "Wait for cloud sync to finish, then try again.");
+                return 1;
+
+            case SaveDownloader.Status.AlreadyHave:
+                AnsiConsole.MarkupLine($"[green]Your turn[/] (turn {manifest.CurrentTurn}).");
+                AnsiConsole.MarkupLine(
+                    $"Latest save already downloaded → [grey]{plan.DestPath!.EscapeMarkup()}[/]");
+                AnsiConsole.MarkupLine(
+                    $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civilization VI to play.");
+                return 0;
+
+            case SaveDownloader.Status.Stale:
+                SaveDownloader.Execute(plan);
+                AnsiConsole.MarkupLine($"[green]Your turn[/] (turn {manifest.CurrentTurn}).");
+                AnsiConsole.MarkupLine(
+                    $"Downloaded [grey]{manifest.LatestSaveFile!.EscapeMarkup()}[/] " +
+                    $"→ [grey]{plan.DestPath!.EscapeMarkup()}[/]");
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine(
+                    $"Open [bold]{plan.DestName!.EscapeMarkup()}[/] in Civilization VI, play your turn, save the " +
+                    "game, then run [bold]civ6-async game submit[/].");
+                return 0;
         }
 
-        var savesDir = PlatformPaths.AutoDetectHotseatSavesDir();
-        if (savesDir is null)
-        {
-            AnsiConsole.MarkupLine("[red]Civ 6 hotseat saves folder not found.[/] Has Civ been launched on this machine yet?");
-            return 1;
-        }
-        Directory.CreateDirectory(savesDir);
-
-        var src = Path.Combine(config.ActiveGameEntry!.SharedFolderPath, manifest.LatestSaveFile);
-        if (!File.Exists(src))
-        {
-            AnsiConsole.MarkupLine(
-                $"[red]Manifest references[/] [grey]{manifest.LatestSaveFile.EscapeMarkup()}[/] " +
-                $"[red]but the file isn't in the shared folder yet.[/] " +
-                "Wait for cloud sync to finish, then try again.");
-            return 1;
-        }
-
-        var destName = SavePicker.DownloadedSaveName(manifest.GameName, manifest.CurrentTurn);
-        var dest     = Path.Combine(savesDir, destName);
-        File.Copy(src, dest, overwrite: true);
-
-        AnsiConsole.MarkupLine($"[green]Your turn[/] (turn {manifest.CurrentTurn}).");
-        AnsiConsole.MarkupLine(
-            $"Downloaded [grey]{manifest.LatestSaveFile.EscapeMarkup()}[/] " +
-            $"→ [grey]{dest.EscapeMarkup()}[/]");
-        AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine(
-            $"Open [bold]{destName.EscapeMarkup()}[/] in Civilization VI, play your turn, save the " +
-            "game, then run [bold]civ6-async game submit[/].");
         return 0;
     }
 }
