@@ -94,26 +94,43 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
         void OnNewLocalSave(string path)
         {
             // Debounce: Civ writes the file in chunks; multiple events fire.
-            // We only care once per second.
             var now = DateTimeOffset.UtcNow;
             if ((now - lastSavesScan).TotalSeconds < 1) return;
             lastSavesScan = now;
 
-            // Only nag if it's our turn — otherwise the user's just messing
-            // around, not finishing a turn for the game.
-            var current = GameManifest.TryLoad(sharedDir);
-            if (current is null) return;
-            if (!string.Equals(current.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase)) return;
-
-            // Skip the files we wrote during 'check' (any name beginning with our prefix).
+            // Skip files we wrote during 'check' (civ6-async-* prefix).
             if (Path.GetFileName(path).StartsWith(SavePicker.DownloadedSavePrefix, StringComparison.OrdinalIgnoreCase))
                 return;
 
+            // Reload the manifest fresh — it might have advanced since we
+            // started watching (e.g. another helper just submitted).
+            var current = GameManifest.TryLoad(sharedDir);
+            if (current is null) return;
+
+            if (!string.Equals(current.CurrentPlayer, me, StringComparison.OrdinalIgnoreCase))
+            {
+                // Not our turn — user might be playing solo or messing about
+                // outside the shared game. Stay quiet.
+                return;
+            }
+
+            // Tiny grace pause: Civ may still be flushing the file when the
+            // FileSystemWatcher fires. SubmitFlow's File.Copy will fail if the
+            // file is still open exclusively. 250ms is empirically enough.
+            Thread.Sleep(250);
+
             var name = Path.GetFileName(path);
-            AnsiConsole.MarkupLine(
-                $"[green]►[/] Civ saved [grey]{name.EscapeMarkup()}[/] — " +
-                "ready to submit. Run [bold]civ6-async game submit[/].");
+            AnsiConsole.MarkupLine($"[green]►[/] Civ saved [grey]{name.EscapeMarkup()}[/] — auto-submitting…");
             Beep();
+
+            var result = SubmitFlow.Run(config!, current, path, force: false);
+            if (result.Outcome == SubmitFlow.Outcome.Submitted)
+            {
+                lastSeenTurn   = current.CurrentTurn;   // updated by RecordSubmit
+                lastSeenPlayer = current.CurrentPlayer;
+            }
+            // BlockedByConflict / BlockedByLock / etc. already printed their
+            // own diagnostics via SubmitFlow. Keep watching.
         }
 
         void OnLuaLogChanged()
