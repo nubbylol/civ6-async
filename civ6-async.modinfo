@@ -4,7 +4,7 @@
     <Name>civ6-async</Name>
     <Teaser>Hotseat-as-async: skip the click-to-begin popup and auto-end turns that need no decision.</Teaser>
     <Description>Hotseat without the friction. Skips the click-to-begin-turn screens between players and auto-ends turns when no human decision is required. Stops the moment something needs you (units to move, choices to make, notifications to acknowledge).</Description>
-    <Authors>arinrazi</Authors>
+    <Authors>nubbylol</Authors>
     <AffectsSavedGames>0</AffectsSavedGames>
     <CompatibleVersions>2.0,2.1,2.2</CompatibleVersions>
   </Properties>
