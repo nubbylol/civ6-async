@@ -141,6 +141,14 @@ internal sealed class GameWatchCommand : Command<EmptySettings>
 
         void PollManifest()
         {
+            // No point hitting the API while it's our turn — the manifest can
+            // only change as the result of OUR submit, and that's caught by
+            // the local-save FileSystemWatcher, not by polling. We resume
+            // polling automatically once submit advances lastSeenPlayer to
+            // somebody else.
+            if (string.Equals(lastSeenPlayer, me, StringComparison.OrdinalIgnoreCase))
+                return;
+
             try
             {
                 var current = GameManifest.TryLoad(storage);
