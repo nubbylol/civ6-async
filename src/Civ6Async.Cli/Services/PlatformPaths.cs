@@ -11,9 +11,10 @@ namespace Civ6Async.Cli.Services;
 ///   - "My Games" — user-installed mods, save files
 ///   - "AppData/Local" — engine logs, caches, Mods.sqlite (mod database)
 ///
-/// Linux Aspyr collapses both into a single ~/.local/share/Aspyr/... folder.
-/// Proton replicates the Windows two-folder split *inside* the Proton prefix
-/// (drive_c/users/steamuser/Documents and drive_c/users/steamuser/AppData).
+/// Linux Aspyr collapses both into a single ~/.local/share/aspyr-media/...
+/// folder (vendor folder is literal lowercase + hyphen — the FS is
+/// case-sensitive). Proton replicates the Windows two-folder split *inside*
+/// the Proton prefix (drive_c/users/steamuser/Documents and AppData).
 /// </summary>
 internal static class PlatformPaths
 {
@@ -37,9 +38,15 @@ internal static class PlatformPaths
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-            // Native Aspyr port — one folder for everything.
-            var aspyr = Path.Combine(home, ".local", "share", "Aspyr", "Sid Meier's Civilization VI");
-            yield return new CivProfile(aspyr, aspyr);
+            // Native Aspyr port — one folder for everything. The actual
+            // vendor folder is "aspyr-media" (lowercase, hyphen); the
+            // capitalized "Aspyr" form is kept as a fallback in case any
+            // older / community installer ever wrote there.
+            foreach (var vendor in new[] { "aspyr-media", "Aspyr" })
+            {
+                var aspyr = Path.Combine(home, ".local", "share", vendor, "Sid Meier's Civilization VI");
+                yield return new CivProfile(aspyr, aspyr);
+            }
 
             // Proton variants — Windows-style split inside the prefix.
             foreach (var prefix in ProtonPrefixCandidates(home))
