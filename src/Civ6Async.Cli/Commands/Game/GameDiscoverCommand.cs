@@ -6,9 +6,11 @@ using Spectre.Console.Cli;
 namespace Civ6Async.Cli.Commands.Game;
 
 /// <summary>
-/// Walk a folder (e.g. ~/Dropbox/civ6-async) looking for any subdirectory
-/// containing a turn_state.json. Useful when you've been added to a new
-/// game and just want to find what's there without being told the exact path.
+/// Walk a local folder looking for any subdirectory containing a
+/// turn_state.json. Useful for local-folder games on a cloud-synced
+/// drive when you've been added to a new game and just want to find
+/// what's there without being told the exact path. R2 games are
+/// discovered via the wizard's join flow, not this command.
 /// </summary>
 internal sealed class GameDiscoverCommand : Command<GameDiscoverCommand.Settings>
 {

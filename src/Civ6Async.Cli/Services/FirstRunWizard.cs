@@ -58,7 +58,7 @@ internal static class FirstRunWizard
             {
                 AnsiConsole.MarkupLine("[red]Couldn't read the game manifest from the configured storage.[/]");
                 AnsiConsole.MarkupLine(
-                    "Likely causes: bad token, wrong folder path, or the host hasn't created " +
+                    "Likely causes: bad credentials, wrong path, or the host hasn't created " +
                     "the game yet. Edit [bold]config.json[/] or use [bold]game join[/] with the right values.");
                 return null;
             }
@@ -152,23 +152,23 @@ internal static class FirstRunWizard
             new SelectionPrompt<string>()
                 .Title("Storage provider:")
                 .AddChoices(
-                    "Dropbox (direct API — recommended; needs an access token from the host)",
+                    "Cloudflare R2 (direct API — recommended; needs an R2 API token from the host)",
                     "Local folder (Drive/Dropbox/OneDrive desktop sync — slower)"));
 
-        var isDropbox = provider.StartsWith("Dropbox", StringComparison.OrdinalIgnoreCase);
+        var isR2 = provider.StartsWith("Cloudflare", StringComparison.OrdinalIgnoreCase);
 
         if (action.StartsWith("Create", StringComparison.OrdinalIgnoreCase))
-            return BuildInitArgs(name, isDropbox);
+            return BuildInitArgs(name, isR2);
 
-        return BuildJoinArgs(name, isDropbox);
+        return BuildJoinArgs(name, isR2);
     }
 
-    private static string[] BuildInitArgs(string name, bool dropbox)
+    private static string[] BuildInitArgs(string name, bool r2)
     {
         var savedDefaults = LocalConfig.Load();
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]A short label for this game (becomes a folder name).[/]");
+        AnsiConsole.MarkupLine("[grey]A short label for this game (becomes a folder/prefix name).[/]");
         AnsiConsole.MarkupLine("[grey]Example: PangaeaDuel[/]");
         var gameName = AnsiConsole.Prompt(new TextPrompt<string>("Game name:"));
 
@@ -177,21 +177,24 @@ internal static class FirstRunWizard
         AnsiConsole.MarkupLine("[grey]Example: arin,max,jess[/]");
         var players = AnsiConsole.Prompt(new TextPrompt<string>("Players:"));
 
-        if (dropbox)
+        if (r2)
         {
-            var token = PromptOrReuseDropboxToken(savedDefaults.DropboxToken);
-
-            var rootPath = PromptDropboxRoot(savedDefaults.DefaultDropboxRoot);
-            PersistDefaultDropboxRoot(rootPath);
+            var creds = PromptOrReuseR2Credentials(savedDefaults);
+            var prefix = PromptR2Prefix(savedDefaults.DefaultR2Prefix);
+            PersistDefaultR2Prefix(prefix);
 
             var args = new List<string> {
-                "game", "init", gameName, "--provider", "dropbox",
-                "--dropbox-token", token, "--players", players, "--me", name,
+                "game", "init", gameName, "--provider", "r2",
+                "--r2-account-id", creds.AccountId,
+                "--r2-access-key", creds.AccessKey,
+                "--r2-secret-key", creds.SecretKey,
+                "--r2-bucket",     creds.Bucket,
+                "--players", players, "--me", name,
             };
-            if (!string.IsNullOrEmpty(rootPath))
+            if (!string.IsNullOrEmpty(prefix))
             {
-                args.Add("--dropbox-folder");
-                args.Add(rootPath);
+                args.Add("--r2-prefix");
+                args.Add(prefix);
             }
             return args.ToArray();
         }
@@ -216,46 +219,54 @@ internal static class FirstRunWizard
             new SelectionPrompt<string>()
                 .Title("Storage provider:")
                 .AddChoices(
-                    "Dropbox (direct API — recommended; needs an access token from the host)",
+                    "Cloudflare R2 (direct API — recommended)",
                     "Local folder (Drive/Dropbox/OneDrive desktop sync — slower)",
                     "Cancel"));
 
         if (provider.StartsWith("Cancel", StringComparison.OrdinalIgnoreCase))
             return null;
 
-        var isDropbox = provider.StartsWith("Dropbox", StringComparison.OrdinalIgnoreCase);
-        return BuildJoinArgs(playerName, isDropbox);
+        var isR2 = provider.StartsWith("Cloudflare", StringComparison.OrdinalIgnoreCase);
+        return BuildJoinArgs(playerName, isR2);
     }
 
-    private static string[]? BuildJoinArgs(string name, bool dropbox)
+    private static string[]? BuildJoinArgs(string name, bool r2)
     {
-        if (dropbox) return BuildDropboxJoinArgs(name);
+        if (r2) return BuildR2JoinArgs(name);
         return BuildLocalJoinArgs(name);
     }
 
-    private static string[]? BuildDropboxJoinArgs(string name)
+    private static string[]? BuildR2JoinArgs(string name)
     {
         var savedConfig = LocalConfig.Load();
-        var token = PromptOrReuseDropboxToken(savedConfig.DropboxToken);
+        var creds       = PromptOrReuseR2Credentials(savedConfig);
 
-        var rootPath = PromptDropboxRoot(savedConfig.DefaultDropboxRoot);
-        PersistDefaultDropboxRoot(rootPath);
+        var rootPrefix = PromptR2Prefix(savedConfig.DefaultR2Prefix);
+        PersistDefaultR2Prefix(rootPrefix);
 
-        var rootLabel = string.IsNullOrEmpty(rootPath) ? "App folder root" : rootPath;
+        var rootLabel = string.IsNullOrEmpty(rootPrefix) ? "bucket root" : rootPrefix;
         IReadOnlyList<GameDiscovery.Found>? games = null;
         AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
-            .Start($"Looking for games under {rootLabel}…",
-                _ => games = GameDiscovery.Dropbox(token, rootPath));
+            .Start($"Looking for games under {creds.Bucket}/{rootLabel}…",
+                _ => games = GameDiscovery.R2(creds.AccountId, creds.AccessKey, creds.SecretKey, creds.Bucket, rootPrefix));
 
         if (games is null || games.Count == 0)
         {
             AnsiConsole.MarkupLine(
-                "[yellow]No games found at that root.[/] Either the token's wrong, the folder path doesn't match what the host used, or the host hasn't created the game yet.");
-            // Fall back to manual entry.
-            AnsiConsole.MarkupLine("[grey]You can paste the full game-folder path the host sent you instead.[/]");
-            var folder = AnsiConsole.Prompt(new TextPrompt<string>("Dropbox folder (full path):"));
-            return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", folder, "--me", name };
+                "[yellow]No games found at that prefix.[/] Either the credentials are wrong, the bucket/prefix " +
+                "doesn't match what the host used, or the host hasn't created the game yet.");
+            AnsiConsole.MarkupLine("[grey]You can paste the full game prefix the host sent you instead.[/]");
+            var prefix = AnsiConsole.Prompt(new TextPrompt<string>("R2 prefix (full):"));
+            return new[] {
+                "game", "join",
+                "--r2-account-id", creds.AccountId,
+                "--r2-access-key", creds.AccessKey,
+                "--r2-secret-key", creds.SecretKey,
+                "--r2-bucket",     creds.Bucket,
+                "--r2-prefix",     prefix,
+                "--me", name,
+            };
         }
 
         var picked = games.Count == 1
@@ -270,7 +281,15 @@ internal static class FirstRunWizard
             AnsiConsole.MarkupLine($"[grey]Found one game:[/] [bold]{picked.Name.EscapeMarkup()}[/]");
 
         var resolvedName = ResolveNameInManifest(name, picked.Manifest);
-        return new[] { "game", "join", "--dropbox-token", token, "--dropbox-folder", picked.FullPath, "--me", resolvedName };
+        return new[] {
+            "game", "join",
+            "--r2-account-id", creds.AccountId,
+            "--r2-access-key", creds.AccessKey,
+            "--r2-secret-key", creds.SecretKey,
+            "--r2-bucket",     creds.Bucket,
+            "--r2-prefix",     picked.FullPath,
+            "--me", resolvedName,
+        };
     }
 
     private static string[]? BuildLocalJoinArgs(string name)
@@ -323,40 +342,47 @@ internal static class FirstRunWizard
                 .AddChoices(manifest.Players));
     }
 
+    // ---- R2 credential prompts ----
+
+    private readonly record struct R2Creds(string AccountId, string AccessKey, string SecretKey, string Bucket);
+
     /// <summary>
-    /// If a per-machine Dropbox token is already saved, reuse it silently.
-    /// Otherwise prompt the user for one (with the create-an-app
-    /// instructions, which only matter for first-time setup). Tokens are
-    /// per-machine — once you've supplied one, you never have to type it
-    /// again for additional games.
+    /// If the per-machine R2 credentials are already saved, reuse them
+    /// silently. Otherwise prompt with the create-an-app instructions
+    /// (only matters for first-time setup). Credentials are per-machine,
+    /// shared across every R2 game on this machine.
     /// </summary>
-    private static string PromptOrReuseDropboxToken(string? savedToken)
+    private static R2Creds PromptOrReuseR2Credentials(LocalConfig saved)
     {
-        if (!string.IsNullOrEmpty(savedToken))
+        if (saved.HasR2Credentials)
         {
-            AnsiConsole.MarkupLine("[grey]Using your saved Dropbox access token.[/]");
-            return savedToken;
+            AnsiConsole.MarkupLine("[grey]Using your saved R2 credentials.[/]");
+            return new R2Creds(saved.R2AccountId!, saved.R2AccessKey!, saved.R2SecretKey!, saved.R2Bucket!);
         }
 
         AnsiConsole.WriteLine();
-        AnsiConsole.MarkupLine("[grey]Generate a Dropbox access token at[/] [bold]https://www.dropbox.com/developers/apps[/][grey] →[/]");
-        AnsiConsole.MarkupLine("[grey]  1. Create app → Scoped, App folder.[/]");
-        AnsiConsole.MarkupLine("[grey]  2. Permissions tab: tick files.content.read, files.content.write, files.metadata.read.[/]");
-        AnsiConsole.MarkupLine("[grey]  3. Settings tab: Generated access token → Generate.[/]");
-        return AnsiConsole.Prompt(new TextPrompt<string>("Dropbox access token:").Secret('*'));
+        AnsiConsole.MarkupLine("[grey]Get an R2 API token at[/] [bold]https://dash.cloudflare.com → R2 → Manage R2 API Tokens[/][grey] →[/]");
+        AnsiConsole.MarkupLine("[grey]  1. Create a bucket first if you don't have one (e.g. 'civ6-async').[/]");
+        AnsiConsole.MarkupLine("[grey]  2. Manage R2 API Tokens → Create API token → Object Read & Write, scoped to that bucket.[/]");
+        AnsiConsole.MarkupLine("[grey]  3. Copy the Access Key ID + Secret Access Key (shown ONCE — paste both below).[/]");
+        AnsiConsole.MarkupLine("[grey]  4. Account ID is shown in the R2 sidebar / dashboard URL.[/]");
+
+        var accountId = AnsiConsole.Prompt(new TextPrompt<string>("Cloudflare account ID:"));
+        var accessKey = AnsiConsole.Prompt(new TextPrompt<string>("R2 Access Key ID:"));
+        var secretKey = AnsiConsole.Prompt(new TextPrompt<string>("R2 Secret Access Key:").Secret('*'));
+        var bucket    = AnsiConsole.Prompt(new TextPrompt<string>("R2 bucket name:"));
+        return new R2Creds(accountId.Trim(), accessKey.Trim(), secretKey.Trim(), bucket.Trim());
     }
 
-    // ---- shared root prompts (used by init + join, default to user's saved value) ----
-
-    private static string PromptDropboxRoot(string? savedDefault)
+    private static string PromptR2Prefix(string? savedDefault)
     {
         var defaultValue = savedDefault ?? "";
         var hint = string.IsNullOrEmpty(defaultValue)
-            ? "[grey]Folder root inside your Dropbox app folder. Press Enter for the App folder root.[/]"
-            : $"[grey]Folder root inside your Dropbox app folder. Press Enter to use [bold]{defaultValue.EscapeMarkup()}[/][grey] (your saved default).[/]";
+            ? "[grey]Optional prefix root inside the bucket. Press Enter to use the bucket root.[/]"
+            : $"[grey]Optional prefix root inside the bucket. Press Enter to use [bold]{defaultValue.EscapeMarkup()}[/][grey] (your saved default).[/]";
         AnsiConsole.MarkupLine(hint);
         return AnsiConsole.Prompt(
-            new TextPrompt<string>("Dropbox root folder:")
+            new TextPrompt<string>("R2 prefix root:")
                 .AllowEmpty()
                 .DefaultValue(defaultValue));
     }
@@ -371,11 +397,11 @@ internal static class FirstRunWizard
         return AnsiConsole.Prompt(prompt);
     }
 
-    private static void PersistDefaultDropboxRoot(string root)
+    private static void PersistDefaultR2Prefix(string prefix)
     {
         var c = LocalConfig.Load();
-        if (string.Equals(c.DefaultDropboxRoot ?? "", root ?? "", StringComparison.Ordinal)) return;
-        c.DefaultDropboxRoot = root;
+        if (string.Equals(c.DefaultR2Prefix ?? "", prefix ?? "", StringComparison.Ordinal)) return;
+        c.DefaultR2Prefix = prefix;
         c.Save();
     }
 

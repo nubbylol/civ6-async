@@ -62,16 +62,19 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
 
         // Re-serialize the host's actual config — same shape Load expects —
         // with PlayerName cleared. Keeps every game, the active-game pointer,
-        // the Dropbox token, and folder paths intact so the invitee is one
+        // R2 credentials, and folder paths intact so the invitee is one
         // prompt away from playing.
         var inviteConfig = new LocalConfig
         {
-            PlayerName         = null,
-            DropboxToken       = config.DropboxToken,
-            ActiveGame         = config.ActiveGame,
-            Games              = config.Games,
-            DefaultDropboxRoot = config.DefaultDropboxRoot,
-            DefaultSharedRoot  = config.DefaultSharedRoot,
+            PlayerName        = null,
+            R2AccountId       = config.R2AccountId,
+            R2AccessKey       = config.R2AccessKey,
+            R2SecretKey       = config.R2SecretKey,
+            R2Bucket          = config.R2Bucket,
+            ActiveGame        = config.ActiveGame,
+            Games             = config.Games,
+            DefaultR2Prefix   = config.DefaultR2Prefix,
+            DefaultSharedRoot = config.DefaultSharedRoot,
         };
         var inviteJson = JsonSerializer.SerializeToUtf8Bytes(inviteConfig, JsonOpts);
 
@@ -94,12 +97,13 @@ internal sealed class GamePackCommand : Command<GamePackCommand.Settings>
         AnsiConsole.MarkupLine("[grey]Send this zip to invitees. They unzip, double-click the binary, and the[/]");
         AnsiConsole.MarkupLine("[grey]wizard will skip straight to \"which player are you?\".[/]");
 
-        if (config.Games.Values.Any(g => g.Provider == "dropbox"))
+        if (config.Games.Values.Any(g => g.Provider == "r2"))
         {
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine(
-                "[yellow]Heads-up:[/] the zip contains your Dropbox access token. Anyone " +
-                "who gets the zip can read/write the game folder. Don't share it publicly.");
+                "[yellow]Heads-up:[/] the zip contains your R2 access key + secret. Anyone " +
+                "who gets the zip can read/write that bucket. Don't share publicly. Scope " +
+                "the API token to a single bucket if you want to limit blast radius.");
         }
         return 0;
     }

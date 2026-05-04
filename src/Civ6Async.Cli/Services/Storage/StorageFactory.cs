@@ -16,14 +16,19 @@ internal static class StorageFactory
             return new LocalFolderStorage(entry.SharedFolderPath);
         }
 
-        if (entry.Provider == "dropbox")
+        if (entry.Provider == "r2")
         {
-            if (string.IsNullOrEmpty(config.DropboxToken))
+            if (!config.HasR2Credentials)
                 throw new InvalidOperationException(
-                    "No Dropbox access token configured. Run 'civ6-async defaults' or re-join the game.");
-            if (string.IsNullOrEmpty(entry.DropboxBasePath))
-                throw new InvalidOperationException("Dropbox game entry missing base path.");
-            return new DropboxStorage(config.DropboxToken, entry.DropboxBasePath);
+                    "No R2 credentials configured. Run 'civ6-async defaults' or re-join the game.");
+            if (entry.R2Prefix is null)
+                throw new InvalidOperationException("R2 game entry missing prefix.");
+            return new S3Storage(
+                config.R2AccountId!,
+                config.R2AccessKey!,
+                config.R2SecretKey!,
+                config.R2Bucket!,
+                entry.R2Prefix);
         }
 
         throw new InvalidOperationException($"Unknown storage provider: {entry.Provider}");

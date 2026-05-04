@@ -20,7 +20,7 @@ app.Configure(config =>
     config.AddCommand<ResetCommand>("reset")
         .WithDescription("Wipe local helper state (config + downloaded turn saves). Cloud folders untouched.");
     config.AddCommand<DefaultsCommand>("defaults")
-        .WithDescription("View and edit the storage defaults (Dropbox root, local folder root) the wizard pre-fills.");
+        .WithDescription("View and edit the storage defaults (R2 credentials, prefix root, local folder root) the wizard pre-fills.");
 
     // Shared-game coordination commands.
     config.AddBranch("game", branch =>

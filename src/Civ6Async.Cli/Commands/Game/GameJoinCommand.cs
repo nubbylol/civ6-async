@@ -11,16 +11,28 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
     public sealed class Settings : CommandSettings
     {
         [CommandOption("--shared <PATH>")]
-        [Description("when --provider=local: Full path to the existing game's shared folder.")]
+        [Description("when joining a local-folder game: full path to the existing game's shared folder.")]
         public string? SharedFolder { get; init; }
 
-        [CommandOption("--dropbox-token <TOKEN>")]
-        [Description("when --provider=dropbox: Dropbox access token from the host.")]
-        public string? DropboxToken { get; init; }
+        [CommandOption("--r2-account-id <ID>")]
+        [Description("when joining an R2 game: Cloudflare account ID.")]
+        public string? R2AccountId { get; init; }
 
-        [CommandOption("--dropbox-folder <PATH>")]
-        [Description("when --provider=dropbox: Full Dropbox path of the game folder, e.g. /civ6-async/MyGame.")]
-        public string? DropboxFolder { get; init; }
+        [CommandOption("--r2-access-key <KEY>")]
+        [Description("when joining an R2 game: R2 API token Access Key ID.")]
+        public string? R2AccessKey { get; init; }
+
+        [CommandOption("--r2-secret-key <SECRET>")]
+        [Description("when joining an R2 game: R2 API token Secret Access Key.")]
+        public string? R2SecretKey { get; init; }
+
+        [CommandOption("--r2-bucket <BUCKET>")]
+        [Description("when joining an R2 game: R2 bucket name.")]
+        public string? R2Bucket { get; init; }
+
+        [CommandOption("--r2-prefix <PREFIX>")]
+        [Description("when joining an R2 game: full prefix of the existing game inside the bucket, e.g. \"MyGame\" or \"season-2/MyGame\".")]
+        public string? R2Prefix { get; init; }
 
         [CommandOption("--me <NAME>")]
         [Description("Which player you are. Picker if omitted.")]
@@ -33,31 +45,39 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
         IGameStorage storage;
         Action<LocalConfig, string> register;
 
-        // Token: explicit --dropbox-token wins; otherwise the per-machine
-        // saved token. --dropbox-folder is still required to know which
-        // game to join.
-        var token = !string.IsNullOrEmpty(settings.DropboxToken)
-            ? settings.DropboxToken
-            : existingConfig.DropboxToken;
+        // R2 credentials: explicit flags win; otherwise per-machine saved values.
+        var accountId = settings.R2AccountId ?? existingConfig.R2AccountId;
+        var accessKey = settings.R2AccessKey ?? existingConfig.R2AccessKey;
+        var secretKey = settings.R2SecretKey ?? existingConfig.R2SecretKey;
+        var bucket    = settings.R2Bucket    ?? existingConfig.R2Bucket;
 
-        if (!string.IsNullOrEmpty(token) && !string.IsNullOrEmpty(settings.DropboxFolder))
+        var hasR2 = !string.IsNullOrEmpty(accountId)
+                    && !string.IsNullOrEmpty(accessKey)
+                    && !string.IsNullOrEmpty(secretKey)
+                    && !string.IsNullOrEmpty(bucket)
+                    && !string.IsNullOrEmpty(settings.R2Prefix);
+
+        if (hasR2)
         {
-            var dropbox = new DropboxStorage(token, settings.DropboxFolder);
+            var s3 = new S3Storage(accountId!, accessKey!, secretKey!, bucket!, settings.R2Prefix!);
 
             string? verify = null;
             AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .Start("Verifying Dropbox access…", _ => verify = dropbox.VerifyAccess());
+                .Start("Verifying R2 access…", _ => verify = s3.VerifyAccess());
             if (verify is not null)
             {
-                AnsiConsole.MarkupLine($"[red]Dropbox access check failed:[/] {verify.EscapeMarkup()}");
+                AnsiConsole.MarkupLine($"[red]R2 access check failed:[/] {verify.EscapeMarkup()}");
                 return 1;
             }
-            storage  = dropbox;
+            storage  = s3;
             register = (cfg, gameName) =>
             {
-                cfg.DropboxToken = token;
-                cfg.RegisterAndActivateDropbox(gameName, settings.DropboxFolder);
+                cfg.R2AccountId = accountId;
+                cfg.R2AccessKey = accessKey;
+                cfg.R2SecretKey = secretKey;
+                cfg.R2Bucket    = bucket;
+                cfg.RegisterAndActivateR2(gameName, settings.R2Prefix!);
             };
         }
         else if (!string.IsNullOrEmpty(settings.SharedFolder))
@@ -67,7 +87,9 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
         }
         else
         {
-            AnsiConsole.MarkupLine("[red]Pass either --shared <path> (local) or --dropbox-folder (token taken from saved defaults if not given).[/]");
+            AnsiConsole.MarkupLine(
+                "[red]Need either --shared <path> (local) or the --r2-* args (R2). " +
+                "If you've already saved R2 credentials, just pass --r2-prefix.[/]");
             return 1;
         }
 
@@ -76,7 +98,7 @@ internal sealed class GameJoinCommand : Command<GameJoinCommand.Settings>
         {
             AnsiConsole.MarkupLine(
                 $"[red]No game manifest found at[/] [grey]{storage.Description.EscapeMarkup()}[/]. " +
-                "Wait for the host to create the game with [bold]game init[/], or check the path / token.");
+                "Wait for the host to create the game with [bold]game init[/], or check the path / credentials.");
             return 1;
         }
 

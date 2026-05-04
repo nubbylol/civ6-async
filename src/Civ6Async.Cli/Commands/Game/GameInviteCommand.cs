@@ -23,15 +23,20 @@ internal sealed class GameInviteCommand : Command<EmptySettings>
         AnsiConsole.MarkupLine($"[grey]Send this to invitees for[/] [bold]{manifest.GameName.EscapeMarkup()}[/][grey]:[/]");
         AnsiConsole.WriteLine();
 
-        if (entry.Provider == "dropbox")
+        if (entry.Provider == "r2")
         {
             AnsiConsole.MarkupLine(
-                $"  [bold]civ6-async game join --dropbox-token \"{config.DropboxToken}\" " +
-                $"--dropbox-folder \"{entry.DropboxBasePath}\"[/]");
+                $"  [bold]civ6-async game join " +
+                $"--r2-account-id \"{config.R2AccountId}\" " +
+                $"--r2-access-key \"{config.R2AccessKey}\" " +
+                $"--r2-secret-key \"{config.R2SecretKey}\" " +
+                $"--r2-bucket \"{config.R2Bucket}\" " +
+                $"--r2-prefix \"{entry.R2Prefix}\"[/]");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine(
-                "[grey]The token gives the holder read+write access to that Dropbox folder. " +
-                "Share it only with people you'd give save-file access to.[/]");
+                "[grey]These credentials give the holder read+write access to that R2 bucket. " +
+                "Share only with people you'd give save-file access to. Scope your R2 API " +
+                "token to a single bucket if you want to limit blast radius.[/]");
         }
         else
         {

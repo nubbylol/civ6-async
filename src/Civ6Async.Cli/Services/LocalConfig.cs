@@ -5,32 +5,41 @@ using System.Text.Json.Serialization;
 namespace Civ6Async.Cli.Services;
 
 /// <summary>
-/// Per-machine helper config. Schema v3:
+/// Per-machine helper config. Schema v4:
 ///   - playerName            — your identity, shared across all games.
-///   - dropboxToken          — your Dropbox access token, shared across
-///                             all Dropbox games (one per machine).
+///   - r2 credentials        — account ID, access key, secret key, bucket.
+///                             One set per machine, shared across every R2
+///                             game (matches the "one Cloudflare account,
+///                             many games" reality).
 ///   - activeGame            — name of the currently-active game (or null).
 ///   - games                 — map from gameName to per-game state.
-///   - defaultDropboxRoot /
-///     defaultSharedRoot     — pre-fill values for the wizard's storage
-///                             prompts.
+///   - defaultR2Prefix       — pre-fill value for the wizard's R2 prefix
+///                             prompt; empty means "bucket root".
+///   - defaultSharedRoot     — pre-fill value for the local-folder root.
 ///
-/// Version 1 stored a single object under "activeGame"; v2 added Games
-/// with per-game DropboxToken. Both auto-migrate to v3 on Load.
+/// v3 used Dropbox; v4 swaps to S3/R2 (Dropbox killed long-lived tokens
+/// in 2021). On Load, any legacy "dropbox" provider entries are stripped
+/// silently — users re-join with R2 credentials.
 /// </summary>
 internal sealed class LocalConfig
 {
     public string?              PlayerName    { get; set; }
-    public string?              DropboxToken  { get; set; }
+
+    // ---- R2 credentials (per-machine) ----
+    public string?              R2AccountId   { get; set; }
+    public string?              R2AccessKey   { get; set; }
+    public string?              R2SecretKey   { get; set; }
+    public string?              R2Bucket      { get; set; }
+
     public string?              ActiveGame    { get; set; }
     public Dictionary<string, GameEntry> Games { get; set; } = new();
 
     /// <summary>
-    /// Last-used Dropbox root folder for new joins / inits. Empty string means
-    /// "App folder root". Null means never set — wizard prompts will offer
-    /// empty as the default.
+    /// Last-used prefix root inside the R2 bucket (parent of per-game
+    /// prefixes). Empty / null means "bucket root" — games sit directly
+    /// under the bucket as top-level prefixes.
     /// </summary>
-    public string? DefaultDropboxRoot { get; set; }
+    public string? DefaultR2Prefix { get; set; }
 
     /// <summary>
     /// Last-used local folder root for new joins / inits. Null means never set.
@@ -42,18 +51,11 @@ internal sealed class LocalConfig
         /// <summary>Local-folder path (Provider == "local").</summary>
         public string? SharedFolderPath { get; set; }
 
-        /// <summary>Storage provider tag — "local" or "dropbox". Null = legacy local.</summary>
+        /// <summary>Storage provider tag — "local" or "r2". Null = legacy local.</summary>
         public string? Provider { get; set; }
 
-        /// <summary>Dropbox folder path, e.g. "/civ6-async/MyGame" (Provider == "dropbox").</summary>
-        public string? DropboxBasePath { get; set; }
-
-        /// <summary>
-        /// Legacy v2 field. Tokens now live at the top of LocalConfig.
-        /// Kept here so old config.json files still deserialize; cleared on
-        /// migration in Load().
-        /// </summary>
-        public string? DropboxToken { get; set; }
+        /// <summary>Per-game prefix inside the R2 bucket, e.g. "MyGame" or "season-2/MyGame".</summary>
+        public string? R2Prefix { get; set; }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -67,7 +69,6 @@ internal sealed class LocalConfig
 
     public GameEntry? ActiveGameEntry =>
         ActiveGame is not null && Games.TryGetValue(ActiveGame, out var e) ? e : null;
-
 
     public static LocalConfig Load()
     {
@@ -101,23 +102,16 @@ internal sealed class LocalConfig
 
             var loaded = node.Deserialize<LocalConfig>(JsonOptions) ?? new LocalConfig();
 
-            // v2 → v3 migration: lift any per-game DropboxToken to the
-            // top-level field. Tokens are per-machine, not per-game; this
-            // matches what every real user already had (one Dropbox app,
-            // one token, used across every game).
-            if (string.IsNullOrEmpty(loaded.DropboxToken))
-            {
-                foreach (var entry in loaded.Games.Values)
-                {
-                    if (entry.Provider == "dropbox" && !string.IsNullOrEmpty(entry.DropboxToken))
-                    {
-                        loaded.DropboxToken = entry.DropboxToken;
-                        break;
-                    }
-                }
-            }
-            foreach (var entry in loaded.Games.Values)
-                entry.DropboxToken = null;
+            // v3 → v4: drop any leftover "dropbox" provider entries. Their
+            // tokens were short-lived anyway and won't work; the user
+            // re-joins with R2 credentials.
+            var stale = loaded.Games
+                .Where(kv => string.Equals(kv.Value.Provider, "dropbox", StringComparison.OrdinalIgnoreCase))
+                .Select(kv => kv.Key)
+                .ToList();
+            foreach (var k in stale) loaded.Games.Remove(k);
+            if (stale.Contains(loaded.ActiveGame ?? "", StringComparer.OrdinalIgnoreCase))
+                loaded.ActiveGame = loaded.Games.Keys.FirstOrDefault();
 
             return loaded;
         }
@@ -146,17 +140,24 @@ internal sealed class LocalConfig
     }
 
     /// <summary>
-    /// Add or replace a Dropbox game entry; sets it active. The token
-    /// itself is set separately at the top level of LocalConfig, since
-    /// it's a per-machine value shared across every Dropbox game.
+    /// Add or replace an R2 game entry; sets it active. R2 credentials
+    /// (account ID, key, secret, bucket) are set separately at the top
+    /// level — per-machine, shared across every R2 game.
     /// </summary>
-    public void RegisterAndActivateDropbox(string gameName, string basePath)
+    public void RegisterAndActivateR2(string gameName, string prefix)
     {
         Games[gameName] = new GameEntry
         {
-            Provider        = "dropbox",
-            DropboxBasePath = basePath,
+            Provider = "r2",
+            R2Prefix = prefix,
         };
         ActiveGame = gameName;
     }
+
+    /// <summary>True iff every R2 credential field is populated.</summary>
+    public bool HasR2Credentials =>
+        !string.IsNullOrEmpty(R2AccountId)
+        && !string.IsNullOrEmpty(R2AccessKey)
+        && !string.IsNullOrEmpty(R2SecretKey)
+        && !string.IsNullOrEmpty(R2Bucket);
 }

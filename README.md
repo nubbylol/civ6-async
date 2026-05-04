@@ -4,7 +4,7 @@ https://github.com/nubbylol/civ6-async/blob/master/README.md
 Async-feeling Civilization VI for friends who can't all sit at the same machine. Two pieces:
 
 - **A mod** that strips the friction out of hotseat: skips click-to-begin-turn screens, auto-ends turns when no decision is needed, stops the moment you actually have something to do.
-- **A helper CLI** that coordinates a single hotseat save across players via either **Dropbox** (direct API — recommended) or any **local cloud-synced folder** (Drive / Dropbox desktop / OneDrive / Syncthing / NAS). One person plays their turn, helper uploads the save; the next player's helper sees it and pulls it down.
+- **A helper CLI** that coordinates a single hotseat save across players via either **Cloudflare R2** (direct API — recommended; free tier covers it forever) or any **local cloud-synced folder** (Drive / Dropbox desktop / OneDrive / Syncthing / NAS). One person plays their turn, helper uploads the save; the next player's helper sees it and pulls it down.
 
 Together they get you something close to Civ's Play-by-Cloud, but you control the storage and it works for friends who can't always be on at the same time.
 
@@ -23,7 +23,7 @@ Together they get you something close to Civ's Play-by-Cloud, but you control th
 
 1. Download the binary for your OS from `dist/cli/` in this repo (`.exe` for Windows, no-extension binary for Linux / Steam Deck).
 2. Run it (double-click or `./civ6-async`).
-3. First-run wizard: pick a player name → **Join an existing game** → choose Dropbox or Local-folder → paste what the host sent you.
+3. First-run wizard: pick a player name → **Join an existing game** → choose Cloudflare R2 or Local-folder → paste what the host sent you.
 
 **Every turn**:
 
@@ -51,17 +51,22 @@ Run it. The first launch is a wizard. Mod install + enable happens automatically
 
 If you're the one running the server-side (creating the game), you have two storage options:
 
-### Dropbox (recommended)
+### Cloudflare R2 (recommended)
 
-Direct HTTPS — sub-second propagation, no waiting on a desktop sync client.
+Direct HTTPS to S3-compatible object storage. Sub-second propagation, **no token expiry** (R2 API tokens are static; Dropbox killed long-lived tokens in 2021), and the free tier (10GB storage + free egress) covers civ6-async indefinitely.
 
-1. Go to https://www.dropbox.com/developers/apps and create an app:
-   - Choose **Scoped access** → **App folder**
-   - Permissions tab: tick `files.content.read`, `files.content.write`, `files.metadata.read`, hit Submit
-   - Settings tab: scroll to **Generated access token** → Generate, copy
-2. Run `civ6-async` → **More options → ... → game init** OR from the wizard pick **Create a new game** → **Dropbox**.
-3. Paste the token when asked.
-4. Files end up in your Dropbox at `/Apps/<your-app-name>/civ6-async/<game-name>/` — visible in dropbox.com or your Dropbox desktop client. The token only grants access to that one App folder.
+1. Go to https://dash.cloudflare.com → **R2** (sign up first if needed; no credit card required for the free tier).
+2. **Create a bucket** (e.g. `civ6-async`).
+3. **Manage R2 API Tokens → Create API Token**:
+   - Permissions: **Object Read & Write**.
+   - Specify bucket: scope to the bucket you just created (limits blast radius).
+   - Save the **Access Key ID** + **Secret Access Key** — Secret is shown only once.
+4. Note your **Cloudflare Account ID** (visible in the R2 sidebar / dashboard URL).
+5. Run `civ6-async`, pick **Create a new game → Cloudflare R2**, paste the four values when asked. They're saved per-machine — every future game on this machine reuses them.
+
+Files end up at `<bucket>/<game-name>/…` (or `<bucket>/<prefix>/<game-name>/…` if you set a prefix root). The R2 API token only grants access to the scoped bucket; other Cloudflare resources are unaffected.
+
+The same `S3Storage` works against any S3-compatible endpoint — AWS S3, Backblaze B2, MinIO, Wasabi — by changing the endpoint URL. R2's the recommended default because of the free tier.
 
 ### Local folder (Drive / Dropbox-desktop / Syncthing / etc.)
 
@@ -74,7 +79,7 @@ civ6-async game init MyGame \
   --me arin
 ```
 
-Note: Drive's desktop sync has been observed to take *hours* to propagate small writes — Dropbox API or Syncthing are dramatically faster. If you must use Drive, expect lag.
+Note: Drive's desktop sync has been observed to take *hours* to propagate small writes — R2 API or Syncthing are dramatically faster. If you must use Drive, expect lag.
 
 ## Inviting friends
 
@@ -86,7 +91,7 @@ Two options:
 civ6-async game pack
 ```
 
-…produces `<GameName>-invite.zip` containing the binary + a stripped `config.json`. Friends unzip, double-click, the wizard fast-paths to "Which player are you?". Works for both Dropbox and local-folder games. *Caveat: for Dropbox games, the zip contains your access token. Don't post it publicly.*
+…produces `<GameName>-invite.zip` containing the binary + a stripped `config.json`. Friends unzip, double-click, the wizard fast-paths to "Which player are you?". Works for both R2 and local-folder games. *Caveat: for R2 games, the zip contains your access key + secret. Don't post it publicly. Scope the API token to a single bucket if you want to limit blast radius.*
 
 **Send a join command**:
 
